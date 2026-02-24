@@ -74,17 +74,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -116,6 +116,13 @@ jobs:
           cd backend
           go build -ldflags "-s -w" -o ../electron/bin/knot-backend.exe .
         shell: pwsh
+
+      - name: Precheck Go backend
+        run: |
+          cd backend
+          go test ./...
+          go build ./...
+        shell: bash
 
       - name: Build frontend
         run: pnpm run build
@@ -168,17 +175,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -194,6 +201,12 @@ jobs:
           cd backend
           go mod download
 
+      - name: Precheck Go backend
+        run: |
+          cd backend
+          go test ./...
+          go build ./...
+
       - name: Generate icons
         run: |
           cd electron/assets/icons
@@ -205,8 +218,8 @@ jobs:
 
       - name: Build Go backend
         run: |
-          mkdir -p ../electron/bin
           cd backend
+          mkdir -p ../electron/bin
           go build -ldflags "-s -w" -o ../electron/bin/knot-backend .
           chmod +x ../electron/bin/knot-backend
           ls -la ../electron/bin/

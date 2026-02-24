@@ -14,6 +14,42 @@ on:
     branches: ['*']
 
 jobs:
+  # PR 轻量预检：快速反馈依赖与后端单测状态
+  smoke-check:
+    name: Smoke Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'backend/go.mod'
+          cache-dependency-path: 'backend/go.sum'
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          go test ./...
+
   # 前端构建检查
   build-frontend:
     name: Build Frontend
@@ -25,6 +61,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       # 第二步：设置 Node.js 环境
       # actions/setup-node 用于安装指定版本的 Node.js
       - name: Setup Node.js
@@ -33,11 +74,6 @@ jobs:
           node-version: '18'
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       # 第三步：安装依赖
       - name: Install dependencies
