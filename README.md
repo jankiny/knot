@@ -14,7 +14,7 @@
 - **桌面应用**: Electron
 - **前端**: React + Ant Design
 - **后端**: Go
-- **目标平台**: Windows / UOS (Debian 10)
+- **目标平台**: Windows / Linux（UOS 建议在目标系统手动打包）
 
 ## 快速开始
 

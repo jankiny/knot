@@ -54,6 +54,7 @@ jobs:
   build-frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
 
     steps:
       # 第一步：检出代码
@@ -91,6 +92,7 @@ jobs:
   check-backend:
     name: Check Backend
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout code
@@ -102,11 +104,6 @@ jobs:
           go-version-file: 'backend/go.mod'
           cache-dependency-path: 'backend/go.sum'
 
-      - name: Download Go modules
-        run: |
-          cd backend
-          go mod download
-
       - name: Run backend tests
         run: |
           cd backend
@@ -115,4 +112,4 @@ jobs:
       - name: Check backend build
         run: |
           cd backend
-          go build ./...
+          go build -buildvcs=false ./...

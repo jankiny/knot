@@ -37,13 +37,17 @@ pnpm run electron:build:win
 
 打包完成后，安装程序将生成在 `dist-electron/` 目录下。
 
-### Linux (统信 UOS / Debian 10) 打包
+### Linux 打包
 
-在 UOS 系统或 Debian 10 环境下运行：
+在 Linux 环境下运行：
 
 ```bash
 pnpm run electron:build:linux
 ```
+
+> [!NOTE]
+> GitHub Actions 的 Linux 发布流程已使用 `ubuntu-latest`。
+> 如果需要 UOS 兼容包，请在目标 UOS 环境中手动执行 Linux 打包。
 
 ## 3. 注意事项
 
