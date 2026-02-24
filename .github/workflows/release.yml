@@ -16,7 +16,6 @@ on:
 
 env:
   NODE_VERSION: '18'
-  PYTHON_VERSION: '3.10'
 
 jobs:
   # ============================================
@@ -33,6 +32,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Generate version
         id: version
@@ -74,19 +78,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          version: 9
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'backend/go.mod'
+          cache-dependency-path: 'backend/go.sum'
 
       - name: Install dependencies
         run: |
-          npm ci
+          pnpm install --frozen-lockfile
           cd backend
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          go mod download
 
       - name: Generate icons
         run: |
@@ -100,25 +110,23 @@ jobs:
           magick convert icons/512x512.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
         shell: pwsh
 
-      - name: Build Python backend with PyInstaller
+      - name: Build Go backend
         run: |
+          New-Item -ItemType Directory -Force -Path electron/bin | Out-Null
           cd backend
-          pyinstaller --clean --noconfirm knot-backend.spec
-          mkdir -p ../electron/bin
-          cp dist/knot-backend.exe ../electron/bin/
-        shell: bash
+          go build -ldflags "-s -w" -o ../electron/bin/knot-backend.exe .
+        shell: pwsh
 
       - name: Build frontend
-        run: npm run build
+        run: pnpm run build
 
       # 更新 package.json 版本
       - name: Update version
         run: |
-          npm version ${{ needs.prepare.outputs.full_version }} --no-git-tag-version --allow-same-version
-        shell: bash
+          pnpm version ${{ needs.prepare.outputs.full_version }} --no-git-tag-version --allow-same-version
 
       - name: Build Electron app
-        run: npx electron-builder --win
+        run: pnpm exec electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -152,30 +160,10 @@ jobs:
         run: |
           apt-get update
           apt-get install -y curl git \
-            imagemagick libcairo2-dev pkg-config \
-            libffi-dev libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
-            liblzma-dev libncurses5-dev libncursesw5-dev xz-utils tk-dev \
+            imagemagick \
             libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 xdg-utils \
             libatspi2.0-0 libdrm2 libgbm1 libxcb-dri3-0 \
-            dpkg fakeroot rpm build-essential wget
-
-      - name: Install Python 3.10 from source
-        run: |
-          cd /tmp
-          wget https://www.python.org/ftp/python/3.10.13/Python-3.10.13.tgz
-          tar xzf Python-3.10.13.tgz
-          cd Python-3.10.13
-          ./configure --enable-optimizations --prefix=/usr/local
-          make -j$(nproc)
-          make altinstall
-          # 创建符号链接
-          ln -sf /usr/local/bin/python3.10 /usr/local/bin/python3
-          ln -sf /usr/local/bin/python3.10 /usr/local/bin/python
-          ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip3
-          ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip
-          # 验证安装
-          python3 --version
-          pip3 --version
+            dpkg fakeroot rpm build-essential
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -184,16 +172,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
-      - name: Install Python dependencies
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'backend/go.mod'
+          cache-dependency-path: 'backend/go.sum'
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Go modules
         run: |
           cd backend
-          pip3 install --upgrade pip
-          pip3 install -r requirements.txt
-          pip3 install pyinstaller
+          go mod download
 
       - name: Generate icons
         run: |
@@ -204,24 +203,23 @@ jobs:
           cd ..
           convert icons/512x512.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 
-      - name: Build Python backend with PyInstaller
+      - name: Build Go backend
         run: |
-          cd backend
-          pyinstaller --clean --noconfirm knot-backend.spec
           mkdir -p ../electron/bin
-          cp dist/knot-backend ../electron/bin/
+          cd backend
+          go build -ldflags "-s -w" -o ../electron/bin/knot-backend .
           chmod +x ../electron/bin/knot-backend
           ls -la ../electron/bin/
 
       - name: Build frontend
-        run: npm run build
+        run: pnpm run build
 
       - name: Update version
         run: |
-          npm version ${{ needs.prepare.outputs.full_version }} --no-git-tag-version --allow-same-version
+          pnpm version ${{ needs.prepare.outputs.full_version }} --no-git-tag-version --allow-same-version
 
       - name: Build Electron app
-        run: npx electron-builder --linux
+        run: pnpm exec electron-builder --linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

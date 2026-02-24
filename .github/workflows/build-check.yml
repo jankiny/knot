@@ -31,21 +31,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'  # 缓存 npm 依赖，加速后续构建
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       # 第三步：安装依赖
       - name: Install dependencies
-        run: npm ci  # npm ci 比 npm install 更快更严格，适合 CI 环境
+        run: pnpm install --frozen-lockfile
 
       # 第四步：构建前端
       - name: Build frontend
-        run: npm run build
+        run: pnpm run build
 
       # 第五步：检查 Electron 主进程语法
       - name: Check Electron main process
         run: node --check electron/main.js
 
-  # 后端检查（Python 语法检查）
+  # 后端检查（Go 测试与编译）
   check-backend:
     name: Check Backend
     runs-on: ubuntu-latest
@@ -54,30 +60,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 设置 Python 环境
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'  # 缓存 pip 依赖
-          cache-dependency-path: 'backend/requirements.txt'
+          go-version-file: 'backend/go.mod'
+          cache-dependency-path: 'backend/go.sum'
 
-      # 安装后端系统依赖
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libcairo2-dev pkg-config
-
-      # 安装后端依赖
-      - name: Install dependencies
+      - name: Download Go modules
         run: |
           cd backend
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          go mod download
 
-      # Python 语法检查
-      - name: Check Python syntax
+      - name: Run backend tests
         run: |
-          python -m py_compile backend/main.py
-          python -m py_compile backend/api/routes.py
-          python -m py_compile backend/mail/client.py
+          cd backend
+          go test ./...
+
+      - name: Check backend build
+        run: |
+          cd backend
+          go build ./...
