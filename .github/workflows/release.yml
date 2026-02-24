@@ -1,0 +1,272 @@
+# 双分支自动打包发布工作流
+#
+# 版本号策略：
+# - dev 分支：产生 1.0.23-alpha 格式（预发布版）
+# - main 分支：产生 1.0.50 格式（正式版）
+# - 其中 1.0 为 package.json 中的主版本，23/50 为构建号
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  # ============================================
+  # 准备版本号与分支判定
+  # ============================================
+  prepare:
+    name: Prepare Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      full_version: ${{ steps.version.outputs.full_version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate version
+        id: version
+        run: |
+          # 读取 package.json 中的版本号 (如 1.0.0) 并提取前两位 (1.0)
+          BASE_VERSION=$(node -p "let v=require('./package.json').version.split('.'); v.slice(0,2).join('.')")
+          BUILD_NUMBER=${{ github.run_number }}
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+
+          if [ "$BRANCH_NAME" = "dev" ]; then
+            # dev 分支：1.0.23-alpha
+            FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}-alpha"
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            # main/master 分支：1.0.50
+            FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}"
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "分支: $BRANCH_NAME"
+          echo "完整版本: $FULL_VERSION"
+          echo "version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "full_version=$FULL_VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+
+  # ============================================
+  # Windows 打包
+  # ============================================
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    needs: prepare
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          cd backend
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Generate icons
+        run: |
+          choco install imagemagick -y
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          cd electron/assets/icons
+          foreach ($size in 16,24,32,48,64,128,256) {
+            magick convert 512x512.png -resize ${size}x${size} ${size}x${size}.png
+          }
+          cd ..
+          magick convert icons/512x512.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
+        shell: pwsh
+
+      - name: Build Python backend with PyInstaller
+        run: |
+          cd backend
+          pyinstaller --clean --noconfirm knot-backend.spec
+          mkdir -p ../electron/bin
+          cp dist/knot-backend.exe ../electron/bin/
+        shell: bash
+
+      - name: Build frontend
+        run: npm run build
+
+      # 更新 package.json 版本
+      - name: Update version
+        run: |
+          npm version ${{ needs.prepare.outputs.full_version }} --no-git-tag-version --allow-same-version
+        shell: bash
+
+      - name: Build Electron app
+        run: npx electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist-electron/*.exe
+          retention-days: 7
+
+  # ============================================
+  # Linux 打包 (使用 Debian 10 容器确保 GLIBC 兼容性)
+  # ============================================
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    needs: prepare
+    container:
+      image: debian:buster  # Debian 10，GLIBC 2.28，兼容 UOS 20
+
+    steps:
+      - name: Configure Debian archive sources
+        run: |
+          # Debian 10 已进入归档状态，使用 archive.debian.org
+          echo "deb http://archive.debian.org/debian buster main" > /etc/apt/sources.list
+          echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
+          # 禁用过期检查
+          echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
+
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl git \
+            imagemagick libcairo2-dev pkg-config \
+            libffi-dev libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+            liblzma-dev libncurses5-dev libncursesw5-dev xz-utils tk-dev \
+            libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 xdg-utils \
+            libatspi2.0-0 libdrm2 libgbm1 libxcb-dri3-0 \
+            dpkg fakeroot rpm build-essential wget
+
+      - name: Install Python 3.10 from source
+        run: |
+          cd /tmp
+          wget https://www.python.org/ftp/python/3.10.13/Python-3.10.13.tgz
+          tar xzf Python-3.10.13.tgz
+          cd Python-3.10.13
+          ./configure --enable-optimizations --prefix=/usr/local
+          make -j$(nproc)
+          make altinstall
+          # 创建符号链接
+          ln -sf /usr/local/bin/python3.10 /usr/local/bin/python3
+          ln -sf /usr/local/bin/python3.10 /usr/local/bin/python
+          ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip3
+          ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip
+          # 验证安装
+          python3 --version
+          pip3 --version
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: |
+          cd backend
+          pip3 install --upgrade pip
+          pip3 install -r requirements.txt
+          pip3 install pyinstaller
+
+      - name: Generate icons
+        run: |
+          cd electron/assets/icons
+          for size in 16 24 32 48 64 128 256; do
+            convert 512x512.png -resize ${size}x${size} ${size}x${size}.png
+          done
+          cd ..
+          convert icons/512x512.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
+
+      - name: Build Python backend with PyInstaller
+        run: |
+          cd backend
+          pyinstaller --clean --noconfirm knot-backend.spec
+          mkdir -p ../electron/bin
+          cp dist/knot-backend ../electron/bin/
+          chmod +x ../electron/bin/knot-backend
+          ls -la ../electron/bin/
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Update version
+        run: |
+          npm version ${{ needs.prepare.outputs.full_version }} --no-git-tag-version --allow-same-version
+
+      - name: Build Electron app
+        run: npx electron-builder --linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist-electron/*.deb
+            dist-electron/*.AppImage
+          retention-days: 7
+
+  # ============================================
+  # 发布到 GitHub Release
+  # ============================================
+  create-release:
+    name: Create Release
+    permissions:
+      contents: write
+    needs: [prepare, build-windows, build-linux]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "./release/**/*"
+          tag: "v${{ needs.prepare.outputs.full_version }}"
+          name: "v${{ needs.prepare.outputs.full_version }}"
+          body: |
+            ## Knot 绳结 v${{ needs.prepare.outputs.full_version }}
+
+            **构建分支**: ${{ github.ref_name }}
+            **状态**: ${{ needs.prepare.outputs.is_prerelease == 'true' && 'Alpha 测试版' || '正式版' }}
+
+            ### 更新内容
+            ${{ github.event.head_commit.message }}
+          draft: false
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+          token: ${{ secrets.GITHUB_TOKEN }}

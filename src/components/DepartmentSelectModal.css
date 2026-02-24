@@ -1,0 +1,61 @@
+.dept-select-modal {
+  padding: 8px 0;
+}
+
+.mail-info-summary {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.summary-item {
+  margin-bottom: 8px;
+}
+
+.summary-item:last-child {
+  margin-bottom: 0;
+}
+
+.summary-item .label {
+  color: #666;
+  font-size: 13px;
+}
+
+.summary-item .value {
+  color: #333;
+  font-weight: 500;
+}
+
+.dept-select-area {
+  margin-top: 8px;
+}
+
+.select-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #333;
+}
+
+.select-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #888;
+}
+
+.dept-option {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.dept-option-name {
+  font-weight: 500;
+  color: #333;
+}
+
+.dept-option-path {
+  font-size: 12px;
+  color: #888;
+}

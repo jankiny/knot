@@ -1,0 +1,68 @@
+.folder-card {
+  margin-bottom: 8px;
+  border: 1px solid #f0f0f0;
+  transition: all 0.2s;
+}
+
+.folder-card:hover {
+  border-color: #d9d9d9;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.folder-card.selected {
+  border-color: #1890ff;
+  background: #e6f7ff;
+}
+
+.folder-card-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.folder-checkbox {
+  flex-shrink: 0;
+}
+
+.folder-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.folder-icon {
+  color: #faad14;
+  font-size: 16px;
+}
+
+.folder-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #888;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-dept-select {
+  flex-shrink: 0;
+}

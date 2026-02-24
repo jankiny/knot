@@ -1,0 +1,194 @@
+.mail-list {
+  width: 100%;
+}
+
+.mail-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.mail-list-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+}
+
+.mail-item {
+  margin-bottom: 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.3s;
+}
+
+.mail-item:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.mail-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.mail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mail-subject {
+  font-size: 16px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.mail-from {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-date {
+  white-space: nowrap;
+}
+
+.mail-body-preview {
+  font-size: 13px;
+  color: #888;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.mail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.attachments-collapse {
+  margin-top: 12px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 8px;
+}
+
+.attachment-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.attachment-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #f0f0f0;
+}
+
+.attachment-list li:last-child {
+  border-bottom: none;
+}
+
+.att-name {
+  flex: 1;
+  color: #333;
+}
+
+.att-size {
+  color: #999;
+  font-size: 12px;
+}
+
+/* 邮件预览弹窗样式 */
+.mail-preview {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.preview-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 16px;
+}
+
+.preview-meta {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.preview-meta .label {
+  color: #666;
+  margin-right: 8px;
+}
+
+.preview-meta .value {
+  color: #333;
+}
+
+.preview-body {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #333;
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.preview-attachments {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.preview-attachments .attachments-title {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.preview-attachments ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.preview-attachments li {
+  padding: 6px 0;
+  font-size: 13px;
+  color: #333;
+}
+
+.preview-attachments li .anticon {
+  margin-right: 8px;
+  color: #1890ff;
+}

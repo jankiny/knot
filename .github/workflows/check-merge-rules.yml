@@ -1,0 +1,52 @@
+name: Branch Merge Constraints
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    # 下面这两行意味着：只有当目标分支是 main 或 dev 时触发
+    branches:
+      - main
+      - dev
+
+jobs:
+  check-branch-rule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Main Branch Rules
+        if: github.base_ref == 'main'
+        run: |
+          # 获取源仓库是不是 Fork 的（head.repo.full_name vs base.repo.full_name）
+          HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+          BASE_REPO="${{ github.event.pull_request.base.repo.full_name }}"
+          HEAD_BRANCH="${{ github.head_ref }}"
+
+          echo "正在检查合并请求来源..."
+          echo "源仓库: $HEAD_REPO"
+          echo "源分支: $HEAD_BRANCH"
+
+          # 规则 1: 必须是本仓库内部的合并 (禁止 Fork 直接合入 Main)
+          if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
+            echo "❌ Error: 禁止外部 Fork 直接合并到 Main 分支！"
+            echo "请先提交 PR 到 dev 分支。"
+            exit 1
+          fi
+
+          # 规则 2: 源分支必须是 dev
+          if [[ "$HEAD_BRANCH" != "dev" ]]; then
+            echo "❌ Error: Main 分支只接受来自 dev 分支的合并。"
+            exit 1
+          fi
+
+          echo "✅ Check passed: 来源合法 (Internal dev branch)。"
+
+      - name: Check Dev Branch Rules
+        if: github.base_ref == 'dev'
+        run: |
+          # 规则：如果目标是 dev，源分支不能是 main (防止回环)，也不能是其他保护分支(视情况而定)
+          # 其实只要不往 main 合，通常 dev 接受 feature/* 都是开放的。
+          # 这里我们可以加一个规则：防止 main 反向合入 dev (通常不需要，但为了严谨)
+          if [[ "${{ github.head_ref }}" == "main" ]]; then
+             echo "❌ Error: 不建议将 main 直接合入 dev，请使用 rebase 或 cherry-pick。"
+             exit 1
+          fi
+          echo "✅ Check passed: 允许合并入 dev。"

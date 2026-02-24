@@ -1,0 +1,119 @@
+/* 全局布局 */
+.app-layout {
+  min-height: 100vh;
+}
+
+/* 右侧主布局区域 */
+.app-layout > .ant-layout {
+  margin-left: 200px;
+  transition: margin-left 0.2s;
+}
+
+/* 侧边栏折叠时调整右侧边距 */
+.app-layout .ant-layout-sider-collapsed + .ant-layout {
+  margin-left: 80px;
+}
+
+/* 左侧边栏 */
+.app-sider {
+  border-right: 1px solid #f0f0f0;
+  height: 100vh;
+  position: fixed !important;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Logo 区域 */
+.logo-container {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid #f0f0f0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.logo-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 侧边栏底部设置按钮 */
+.sider-footer {
+  padding: 16px;
+  border-top: 1px solid #f0f0f0;
+  background: white;
+  flex-shrink: 0;
+}
+
+/* 顶部 Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 0 0 !important;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mock-badge {
+  background: #ff7875;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+/* 菜单样式优化 */
+.app-sider .ant-menu {
+  flex: 1;
+  border-inline-end: none !important;
+  overflow: hidden;
+}
+
+.app-sider .ant-menu-item {
+  margin: 4px 8px;
+  border-radius: 6px;
+}
+
+.app-sider .ant-menu-item-selected {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.app-sider .ant-menu-item-selected .anticon {
+  color: white;
+}
+
+.app-sider .ant-menu-item:not(.ant-menu-item-selected):hover {
+  background: #f5f5f5;
+}

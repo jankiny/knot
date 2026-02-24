@@ -1,0 +1,58 @@
+.auto-archive {
+  padding: 0;
+}
+
+.archive-header {
+  margin-bottom: 20px;
+}
+
+.archive-header h2 {
+  margin: 0 0 4px 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.header-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #888;
+}
+
+.scan-section {
+  margin-bottom: 20px;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px 0;
+}
+
+.folders-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fafafa;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.folders-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.folders-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.folders-list::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 3px;
+}
+
+.folders-list::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
+}

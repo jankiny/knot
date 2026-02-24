@@ -1,0 +1,83 @@
+# 构建检查工作流
+# 每次推送或 PR 时自动检查代码是否能正常构建
+# 这是一种 CI (持续集成) 的实践，确保每次代码变更都不会破坏构建
+
+name: Build Check
+
+# 触发条件：
+# - 任何分支的 push（代码推送）
+# - 任何 PR（拉取请求）
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: ['*']
+
+jobs:
+  # 前端构建检查
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      # 第一步：检出代码
+      # actions/checkout 是 GitHub 官方提供的 action，用于将仓库代码下载到运行环境
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 第二步：设置 Node.js 环境
+      # actions/setup-node 用于安装指定版本的 Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'  # 缓存 npm 依赖，加速后续构建
+
+      # 第三步：安装依赖
+      - name: Install dependencies
+        run: npm ci  # npm ci 比 npm install 更快更严格，适合 CI 环境
+
+      # 第四步：构建前端
+      - name: Build frontend
+        run: npm run build
+
+      # 第五步：检查 Electron 主进程语法
+      - name: Check Electron main process
+        run: node --check electron/main.js
+
+  # 后端检查（Python 语法检查）
+  check-backend:
+    name: Check Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 设置 Python 环境
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'  # 缓存 pip 依赖
+          cache-dependency-path: 'backend/requirements.txt'
+
+      # 安装后端系统依赖
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev pkg-config
+
+      # 安装后端依赖
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # Python 语法检查
+      - name: Check Python syntax
+        run: |
+          python -m py_compile backend/main.py
+          python -m py_compile backend/api/routes.py
+          python -m py_compile backend/mail/client.py
