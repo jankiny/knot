@@ -87,7 +87,7 @@
         "deb"
       ],
       "category": "Office",
-      "icon": "electron/assets/icons/512x512.png",
+      "icon": "electron/assets/icons",
       "artifactName": "${name}-linux-${version}-${arch}.${ext}"
     },
     "icon": "electron/assets/icons/512x512.png",
