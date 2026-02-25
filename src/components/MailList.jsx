@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { List, Card, Button, Tag, Collapse, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
 import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { mailApi, folderApi, USE_MOCK } from '../services/api'
@@ -11,7 +11,9 @@ function MailList() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState({})
   const [previewMail, setPreviewMail] = useState(null)
-  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [loadingDetail, setLoadingDetail] = useState({})
+  // 当前处于视口视野内的主要月份
+  const [activeMonthKey, setActiveMonthKey] = useState('')
   // 部门选择弹窗状态
   const [deptModalOpen, setDeptModalOpen] = useState(false)
   const [selectedMailForFolder, setSelectedMailForFolder] = useState(null)
@@ -85,6 +87,119 @@ function MailList() {
   useEffect(() => {
     fetchMails()
   }, [])
+
+  // 计算时间轴数据
+  const timelineData = useMemo(() => {
+    if (!mails || mails.length === 0) return []
+
+    const monthMap = new Map()
+
+    // mails 通常是按时间倒序排列的（最新的在前）
+    mails.forEach((mail) => {
+      if (!mail.date) return
+      const date = new Date(mail.date)
+      if (isNaN(date.getTime())) return
+
+      const year = date.getFullYear()
+      const month = date.getMonth() + 1
+      const monthKey = `${year}-${month.toString().padStart(2, '0')}`
+      const monthLabel = `${year}年${month}月`
+
+      // 因为邮件是按时间倒序的，所以我们遍历时遇到的第一个该月份的邮件就是该月份最新的邮件
+      if (!monthMap.has(monthKey)) {
+        monthMap.set(monthKey, {
+          key: monthKey,
+          label: monthLabel,
+          mailId: mail.id,
+          timestamp: date.getTime()
+        })
+      }
+    })
+
+    // 按时间倒序排列月份节点（最新的月份在上）
+    return Array.from(monthMap.values()).sort((a, b) => b.timestamp - a.timestamp)
+  }, [mails])
+
+  // 监听滚动来计算当前所在的月份
+  useEffect(() => {
+    if (!mails || mails.length === 0 || timelineData.length === 0) return
+
+    let visibleMails = new Map()
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          visibleMails.set(entry.target.id, entry.boundingClientRect.top)
+        } else {
+          visibleMails.delete(entry.target.id)
+        }
+      })
+
+      if (visibleMails.size > 0) {
+        // 找到最上面（top最小且最接近0，或者正数最小）的邮件
+        let closestId = ''
+        let minTop = Infinity
+
+        for (const [id, top] of visibleMails.entries()) {
+          // 加上一定的 header 偏移量容差
+          const adjustedTop = top - 80
+          if (adjustedTop >= 0 && adjustedTop < minTop) {
+            minTop = adjustedTop
+            closestId = id
+          }
+        }
+
+        // 如果没有正数的（比如一个极长邮件占满了整个屏幕）
+        if (!closestId) {
+          let maxTop = -Infinity
+          for (const [id, top] of visibleMails.entries()) {
+            if (top > maxTop) {
+              maxTop = top
+              closestId = id
+            }
+          }
+        }
+
+        if (closestId) {
+          const actualMailId = closestId.replace('mail-', '')
+          const mail = mails.find(m => String(m.id) === String(actualMailId))
+          if (mail && mail.date) {
+            const date = new Date(mail.date)
+            const year = date.getFullYear()
+            const month = date.getMonth() + 1
+            const monthKey = `${year}-${month.toString().padStart(2, '0')}`
+            setActiveMonthKey(monthKey)
+          }
+        }
+      }
+    }, {
+      rootMargin: '-80px 0px 0px 0px',
+      // 定义多个阈值以便更好地捕获不同大小元素的交叉状态
+      threshold: [0, 0.1, 0.5, 0.9, 1]
+    })
+
+    mails.forEach(mail => {
+      const el = document.getElementById(`mail-${mail.id}`)
+      if (el) observer.observe(el)
+    })
+
+    return () => observer.disconnect()
+  }, [mails, timelineData])
+
+  // 滚动到指定邮件
+  const scrollToMail = (mailId) => {
+    const element = document.getElementById(`mail-${mailId}`)
+    if (element) {
+      // 考虑到可能有顶部导航栏，可以设置一个偏移
+      const headerOffset = 80 // 假设大概80px
+      const elementPosition = element.getBoundingClientRect().top
+      const offsetPosition = elementPosition + window.pageYOffset - headerOffset
+
+      // 注意：这里的滚动取决于外层容器是谁
+      // 如果是用原生的或者自定义的滚动容器，可能需要用 element.scrollIntoView()
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   // 打开部门选择弹窗（先加载邮件详情）
   const openDeptModal = async (mail) => {
@@ -183,7 +298,7 @@ function MailList() {
   // 预览邮件（先加载详情）
   const handlePreviewMail = async (mail) => {
     if (!mail.body) {
-      setLoadingDetail(true)
+      setLoadingDetail(prev => ({ ...prev, [mail.id]: true }))
       try {
         const result = await mailApi.getMailDetail(mail.id)
         if (result.success && result.data) {
@@ -201,7 +316,7 @@ function MailList() {
         message.error('加载邮件详情失败')
         setPreviewMail(mail)
       } finally {
-        setLoadingDetail(false)
+        setLoadingDetail(prev => ({ ...prev, [mail.id]: false }))
       }
     } else {
       setPreviewMail(mail)
@@ -240,7 +355,7 @@ function MailList() {
 
   if (loading) {
     return (
-      <div className="loading-container" style={{ textAlign: 'center', padding: '50px' }}>
+      <div className="loading-container">
         <Spin size="large" />
         <div style={{ marginTop: 16, color: '#999' }}>加载邮件列表中...</div>
       </div>
@@ -249,142 +364,166 @@ function MailList() {
 
   return (
     <div className="mail-list">
-      <div className="mail-list-header">
-        <h2>收件箱</h2>
-        <Button icon={<ReloadOutlined />} onClick={fetchMails}>
-          刷新
-        </Button>
-      </div>
-
-      {/* 连接错误提示 */}
-      {connectionError && (
-        <Alert
-          message={
-            connectionError === 'network'
-              ? "无法连接到后端服务"
-              : connectionError === 'not_configured'
-                ? "尚未连接邮箱"
-                : connectionError === 'auth'
-                  ? "邮件服务器认证失败"
-                  : "获取邮件失败"
-          }
-          description={
-            connectionError === 'network' ? (
-              <div>
-                <p>后端服务未能正常启动，请尝试以下操作：</p>
-                <ol style={{ paddingLeft: 20, margin: '8px 0' }}>
-                  <li>重启应用程序</li>
-                  <li>检查是否有杀毒软件阻止了后端进程</li>
-                  <li>如问题持续，请查看应用日志或联系技术支持</li>
-                </ol>
-              </div>
-            ) : connectionError === 'not_configured' ? (
-              <p>请点击左下角「设置」配置邮件服务器，连接成功后即可查看邮件列表。</p>
-            ) : connectionError === 'auth' ? (
-              <div>
-                <p>邮件服务器连接失败，请检查您的配置：</p>
-                <ol style={{ paddingLeft: 20, margin: '8px 0' }}>
-                  <li>点击左下角「设置」检查服务器地址和端口</li>
-                  <li>确认用户名和密码正确</li>
-                  <li>如使用企业邮箱，可能需要开启 IMAP 服务或使用授权码</li>
-                </ol>
-              </div>
-            ) : (
-              <p>请稍后重试，或点击左下角「设置」检查邮件服务器配置。</p>
-            )
-          }
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          action={
-            <Button size="small" icon={<SettingOutlined />} onClick={() => window.dispatchEvent(new CustomEvent('openSettings'))}>
-              打开设置
-            </Button>
-          }
-        />
-      )}
-
-      {mails.length === 0 && !connectionError ? (
-        <Empty
-          description={
-            <div>
-              <p style={{ margin: '0 0 8px 0' }}>{`已连接成功，但最近 ${fetchDays} 天内暂无邮件`}</p>
-              <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>（可点击左下角「设置」修改获取时间范围）</p>
-            </div>
-          }
-        />
-      ) : mails.length > 0 && (
-        <List
-          dataSource={mails}
-          renderItem={(mail) => (
-            <Card className="mail-item" key={mail.id}>
-              <div className="mail-content">
-                <div className="mail-info">
-                  <div className="mail-subject">{mail.subject}</div>
-                  <div className="mail-meta">
-                    <span className="mail-from">{mail.from}</span>
-                    <span className="mail-date">{formatDate(mail.date)}</span>
+      <div className="mail-list-container">
+        <div className="mail-list-content">
+          {/* 连接错误提示 */}
+          {connectionError && (
+            <Alert
+              message={
+                connectionError === 'network'
+                  ? "无法连接到后端服务"
+                  : connectionError === 'not_configured'
+                    ? "尚未连接邮箱"
+                    : connectionError === 'auth'
+                      ? "邮件服务器认证失败"
+                      : "获取邮件失败"
+              }
+              description={
+                connectionError === 'network' ? (
+                  <div>
+                    <p>后端服务未能正常启动，请尝试以下操作：</p>
+                    <ol style={{ paddingLeft: 20, margin: '8px 0' }}>
+                      <li>重启应用程序</li>
+                      <li>检查是否有杀毒软件阻止了后端进程</li>
+                      <li>如问题持续，请查看应用日志或联系技术支持</li>
+                    </ol>
                   </div>
-                  {mail.body && (
-                    <div className="mail-body-preview">
-                      {getBodyPreview(mail.body)}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mail-actions">
-                  {generatedIds.includes(mail.id) && (
-                    <Tag icon={<CheckCircleOutlined />} color="success">
-                      已生成
-                    </Tag>
-                  )}
-
-                  {(mail.attachment_count > 0 || mail.has_attachments) && (
-                    <Tag icon={<PaperClipOutlined />} color="blue">
-                      {mail.attachment_count > 0 ? `${mail.attachment_count} 个附件` : '有附件'}
-                    </Tag>
-                  )}
-
-                  <Tooltip title="预览邮件">
-                    <Button
-                      icon={<EyeOutlined />}
-                      onClick={() => handlePreviewMail(mail)}
-                      loading={loadingDetail}
-                    />
-                  </Tooltip>
-
-                  <Tooltip title={(mail.attachment_count > 0 || mail.has_attachments) ? "创建文件夹并下载附件" : "创建文件夹"}>
-                    <Button
-                      type="primary"
-                      icon={<FolderAddOutlined />}
-                      onClick={() => openDeptModal(mail)}
-                      loading={creating[mail.id]}
-                    >
-                      生成文件夹
-                    </Button>
-                  </Tooltip>
-                </div>
-              </div>
-
-              {mail.attachments && mail.attachments.length > 0 && (
-                <Collapse ghost className="attachments-collapse">
-                  <Collapse.Panel header="查看附件详情" key="1">
-                    <ul className="attachment-list">
-                      {mail.attachments.map((att, idx) => (
-                        <li key={idx}>
-                          <PaperClipOutlined />
-                          <span className="att-name">{att.filename}</span>
-                          <span className="att-size">{formatFileSize(att.size)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </Collapse.Panel>
-                </Collapse>
-              )}
-            </Card>
+                ) : connectionError === 'not_configured' ? (
+                  <p>请点击左下角「设置」配置邮件服务器，连接成功后即可查看邮件列表。</p>
+                ) : connectionError === 'auth' ? (
+                  <div>
+                    <p>邮件服务器连接失败，请检查您的配置：</p>
+                    <ol style={{ paddingLeft: 20, margin: '8px 0' }}>
+                      <li>点击左下角「设置」检查服务器地址和端口</li>
+                      <li>确认用户名和密码正确</li>
+                      <li>如使用企业邮箱，可能需要开启 IMAP 服务或使用授权码</li>
+                    </ol>
+                  </div>
+                ) : (
+                  <p>请稍后重试，或点击左下角「设置」检查邮件服务器配置。</p>
+                )
+              }
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              action={
+                <Button size="small" icon={<SettingOutlined />} onClick={() => window.dispatchEvent(new CustomEvent('openSettings'))}>
+                  打开设置
+                </Button>
+              }
+            />
           )}
-        />
-      )}
+
+          {mails.length === 0 && !connectionError ? (
+            <Empty
+              description={
+                <div>
+                  <p style={{ margin: '0 0 8px 0' }}>{`已连接成功，但最近 ${fetchDays} 天内暂无邮件`}</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>（可点击左下角「设置」修改获取时间范围）</p>
+                </div>
+              }
+            />
+          ) : mails.length > 0 && (
+            <List
+              dataSource={mails}
+              renderItem={(mail) => (
+                <Card className="mail-item" key={mail.id} id={`mail-${mail.id}`}>
+                  <div className="mail-content">
+                    <div className="mail-info">
+                      <div className="mail-subject">{mail.subject}</div>
+                      <div className="mail-meta">
+                        <span className="mail-from">{mail.from}</span>
+                        <span className="mail-date">{formatDate(mail.date)}</span>
+                      </div>
+                      {mail.body && (
+                        <div className="mail-body-preview">
+                          {getBodyPreview(mail.body)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mail-actions">
+                      {generatedIds.includes(mail.id) && (
+                        <Tag icon={<CheckCircleOutlined />} color="success">
+                          已生成
+                        </Tag>
+                      )}
+
+                      {(mail.attachment_count > 0 || mail.has_attachments) && (
+                        <Tag icon={<PaperClipOutlined />} color="blue">
+                          {mail.attachment_count > 0 ? `${mail.attachment_count} 个附件` : '有附件'}
+                        </Tag>
+                      )}
+
+                      <Tooltip title="预览邮件">
+                        <Button
+                          icon={<EyeOutlined />}
+                          onClick={() => handlePreviewMail(mail)}
+                          loading={loadingDetail[mail.id]}
+                        />
+                      </Tooltip>
+
+                      <Tooltip title={(mail.attachment_count > 0 || mail.has_attachments) ? "创建文件夹并下载附件" : "创建文件夹"}>
+                        <Button
+                          type="primary"
+                          icon={<FolderAddOutlined />}
+                          onClick={() => openDeptModal(mail)}
+                          loading={creating[mail.id]}
+                        >
+                          生成
+                        </Button>
+                      </Tooltip>
+                    </div>
+                  </div>
+
+                  {mail.attachments && mail.attachments.length > 0 && (
+                    <Collapse ghost className="attachments-collapse">
+                      <Collapse.Panel header="查看附件详情" key="1">
+                        <ul className="attachment-list">
+                          {mail.attachments.map((att, idx) => (
+                            <li key={idx}>
+                              <PaperClipOutlined />
+                              <span className="att-name">{att.filename}</span>
+                              <span className="att-size">{formatFileSize(att.size)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </Collapse.Panel>
+                    </Collapse>
+                  )}
+                </Card>
+              )}
+            />
+          )}
+        </div>
+
+        {/* 右侧侧边栏：刷新按钮 + 时间滚动条 */}
+        <div className="mail-sidebar">
+          <Tooltip title="刷新列表" placement="left">
+            <Button
+              shape="circle"
+              icon={<ReloadOutlined />}
+              onClick={fetchMails}
+              className="refresh-btn"
+            />
+          </Tooltip>
+          {timelineData.length > 0 && (
+            <div className="mail-timeline">
+              <div className="timeline-track"></div>
+              {timelineData.map((item) => (
+                <Tooltip title={item.label} placement="left" key={item.key}>
+                  <div
+                    className={`timeline-dot ${activeMonthKey === item.key ? 'active' : ''}`}
+                    onClick={() => scrollToMail(item.mailId)}
+                  >
+                    <div className="timeline-dot-inner"></div>
+                  </div>
+                </Tooltip>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* 邮件预览弹窗 */}
       <Modal

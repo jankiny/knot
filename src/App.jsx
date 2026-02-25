@@ -203,15 +203,14 @@ function App() {
               padding: 24,
               minHeight: 280,
               background: colorBgContainer,
-              borderRadius: borderRadiusLG,
-              overflow: 'auto'
+              borderRadius: borderRadiusLG
             }}
           >
             {renderContent()}
           </Content>
         </Layout>
       </Layout>
-    </ConfigProvider>
+    </ConfigProvider >
   )
 }
 

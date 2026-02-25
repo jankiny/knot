@@ -7,6 +7,12 @@
 .app-layout>.ant-layout {
   margin-left: 200px;
   transition: margin-left 0.2s;
+  overflow: visible !important;
+}
+
+/* 强制允许内容区溢出可见以支持 sticky 定位 */
+.ant-layout-content {
+  overflow: visible !important;
 }
 
 /* 侧边栏折叠时调整右侧边距 */
