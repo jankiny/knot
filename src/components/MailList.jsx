@@ -34,6 +34,29 @@ function MailList() {
     setConnectionError(null)
     try {
       const settings = getSettings()
+
+      // 自动连接：如果有保存的邮箱配置，先尝试连接后端
+      if (settings.mailServer && settings.mailUsername && settings.mailPasswordEncrypted) {
+        try {
+          let password = ''
+          if (window.electronAPI?.decryptPassword) {
+            password = await window.electronAPI.decryptPassword(settings.mailPasswordEncrypted) || ''
+          }
+          if (password) {
+            await mailApi.connect({
+              server: settings.mailServer,
+              port: settings.mailPort || 993,
+              username: settings.mailUsername,
+              password: password,
+              use_ssl: settings.mailUseSsl !== false
+            })
+          }
+        } catch (connectError) {
+          console.error('自动连接邮箱失败:', connectError)
+          // 连接失败不阻断，让后续 getMailList 决定错误类型
+        }
+      }
+
       // 使用设置中的 limit 和 days，如果未设置则使用默认值
       const limit = settings.mailLimit || 50
       const days = settings.mailDays !== undefined ? settings.mailDays : 7

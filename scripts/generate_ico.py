@@ -5,7 +5,7 @@ import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 assets_dir = os.path.join(project_root, 'electron', 'assets')
-source_icon = os.path.join(assets_dir, 'icons', '512x512.png')
+source_icon = os.path.join(assets_dir, 'icons', '991x991.png')
 output_icon = os.path.join(assets_dir, 'icon.ico')
 
 def generate_ico():

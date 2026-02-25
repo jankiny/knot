@@ -178,6 +178,10 @@ if (!gotTheLock) {
       return safeStorage.isEncryptionAvailable()
     })
 
+    ipcMain.on('get-app-version', (event) => {
+      event.returnValue = app.getVersion()
+    })
+
     startBackend()
 
     setTimeout(() => {

@@ -107,11 +107,11 @@ jobs:
           choco install imagemagick -y
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
           cd electron/assets/icons
-          foreach ($size in 16,24,32,48,64,128,256) {
-            magick convert 512x512.png -resize ${size}x${size} ${size}x${size}.png
+          foreach ($size in 16,24,32,48,64,128,256,512) {
+            magick convert 991x991.png -resize ${size}x${size} ${size}x${size}.png
           }
           cd ..
-          magick convert icons/512x512.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
+          magick convert icons/991x991.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
         shell: pwsh
 
       - name: Build Go backend
@@ -191,11 +191,11 @@ jobs:
       - name: Generate icons
         run: |
           cd electron/assets/icons
-          for size in 16 24 32 48 64 128 256; do
-            convert 512x512.png -resize ${size}x${size} ${size}x${size}.png
+          for size in 16 24 32 48 64 128 256 512; do
+            convert 991x991.png -resize ${size}x${size} ${size}x${size}.png
           done
           cd ..
-          convert icons/512x512.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
+          convert icons/991x991.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 
       - name: Build Go backend
         run: |

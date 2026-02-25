@@ -1,13 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-// 尝试读取 package.json 获取版本号，失败则使用默认值
-let appVersion = '1.0.0'
-try {
-  const packageJson = require('../package.json')
-  appVersion = packageJson.version
-} catch (e) {
-  console.warn('Failed to load package.json version:', e)
-}
+// 获取版本号（同步方式，在预加载时获取一次即可保证最新）
+const appVersion = ipcRenderer.sendSync('get-app-version')
 
 // 暴露安全的 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {

@@ -5,7 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ICONS_DIR="$PROJECT_DIR/electron/assets/icons"
-SOURCE_ICON="$ICONS_DIR/512x512.png"
+SOURCE_ICON="$ICONS_DIR/991x991.png"
 
 echo "源图标: $SOURCE_ICON"
 echo "输出目录: $ICONS_DIR"
@@ -26,7 +26,7 @@ fi
 
 # 生成 Linux 各尺寸 PNG
 echo "生成 Linux PNG 图标..."
-for size in 16 24 32 48 64 128 256; do
+for size in 16 24 32 48 64 128 256 512; do
     output="$ICONS_DIR/${size}x${size}.png"
     convert "$SOURCE_ICON" -resize ${size}x${size} "$output"
     echo "  生成: ${size}x${size}.png"
