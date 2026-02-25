@@ -28,6 +28,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       full_version: ${{ steps.version.outputs.full_version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      release_name: ${{ steps.version.outputs.release_name }}
 
     steps:
       - name: Checkout code
@@ -50,10 +52,14 @@ jobs:
             # dev 分支：1.0.23-alpha
             FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}-alpha"
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_tag=alpha" >> $GITHUB_OUTPUT
+            echo "release_name=Knot Alpha (${FULL_VERSION})" >> $GITHUB_OUTPUT
           else
             # main/master 分支：1.0.50
             FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}"
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_tag=v${FULL_VERSION}" >> $GITHUB_OUTPUT
+            echo "release_name=v${FULL_VERSION}" >> $GITHUB_OUTPUT
           fi
 
           echo "分支: $BRANCH_NAME"
@@ -139,7 +145,7 @@ jobs:
         with:
           name: windows-build
           path: dist-electron/*.exe
-          retention-days: 7
+          retention-days: 3
 
   # ============================================
   # Linux 打包 (Ubuntu Runner)
@@ -224,7 +230,7 @@ jobs:
           path: |
             dist-electron/*.deb
             dist-electron/*.AppImage
-          retention-days: 7
+          retention-days: 3
 
   # ============================================
   # 发布到 GitHub Release
@@ -245,12 +251,25 @@ jobs:
         with:
           path: ./release
 
+      - name: Generate Release Notes
+        uses: actions/github-script@v7
+        id: generate-notes
+        with:
+          script: |
+            const { data } = await github.rest.repos.generateReleaseNotes({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: "${{ needs.prepare.outputs.release_tag }}",
+              target_commitish: context.sha,
+            });
+            return data.body;
+
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: "./release/**/*"
-          tag: "v${{ needs.prepare.outputs.full_version }}"
-          name: "v${{ needs.prepare.outputs.full_version }}"
+          tag: "${{ needs.prepare.outputs.release_tag }}"
+          name: "${{ needs.prepare.outputs.release_name }}"
           body: |
             ## Knot 绳结 v${{ needs.prepare.outputs.full_version }}
 
@@ -258,7 +277,11 @@ jobs:
             **状态**: ${{ needs.prepare.outputs.is_prerelease == 'true' && 'Alpha 测试版' || '正式版' }}
 
             ### 更新内容
-            ${{ github.event.head_commit.message }}
+            ${{ steps.generate-notes.outputs.result }}
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+          allowUpdates: true
+          removeArtifacts: true
+          replacesArtifacts: true
+          makeLatest: ${{ needs.prepare.outputs.is_prerelease == 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
