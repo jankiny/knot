@@ -31,7 +31,12 @@ function MailList() {
   // 记录最近一次获取数据的天数范围
   const [fetchDays, setFetchDays] = useState(7)
 
+  // 用于防止 StrictMode 双重调用导致的竞态条件
+  const fetchIdRef = useRef(0)
+
   const fetchMails = async () => {
+    // 递增 fetchId，用于忽略过时的请求结果（防止 StrictMode 双重调用竞态）
+    const currentFetchId = ++fetchIdRef.current
     setLoading(true)
     setConnectionError(null)
     try {
@@ -59,6 +64,9 @@ function MailList() {
         }
       }
 
+      // 如果在等待期间又触发了新的 fetchMails，放弃本次结果
+      if (currentFetchId !== fetchIdRef.current) return
+
       // 使用设置中的 limit 和 days，如果未设置则使用默认值
       const limit = settings.mailLimit || 50
       const days = settings.mailDays !== undefined ? settings.mailDays : 7
@@ -66,8 +74,12 @@ function MailList() {
       setFetchDays(days)
 
       const result = await mailApi.getMailList(limit, days)
+      // 再次检查：如果在请求期间又触发了新的 fetchMails，忽略旧结果
+      if (currentFetchId !== fetchIdRef.current) return
       setMails(result.data || [])
     } catch (error) {
+      // 如果是过时的请求，忽略其错误
+      if (currentFetchId !== fetchIdRef.current) return
       if (error.code === 'ERR_NETWORK') {
         setConnectionError('network')
       } else if (error.response?.status === 400) {
@@ -80,7 +92,9 @@ function MailList() {
       }
       setMails([])
     } finally {
-      setLoading(false)
+      if (currentFetchId === fetchIdRef.current) {
+        setLoading(false)
+      }
     }
   }
 
