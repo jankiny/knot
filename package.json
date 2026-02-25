@@ -80,14 +80,15 @@
       "createStartMenuShortcut": true,
       "unicode": true,
       "language": "2052",
-      "artifactName": "${productName} Setup ${version}.${ext}"
+      "artifactName": "${name}-win-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [
         "deb"
       ],
       "category": "Office",
-      "icon": "electron/assets/icons"
+      "icon": "electron/assets/icons",
+      "artifactName": "${name}-linux-${version}-${arch}.${ext}"
     },
     "icon": "electron/assets/icons/512x512.png",
     "mac": {
