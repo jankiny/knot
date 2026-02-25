@@ -60,7 +60,7 @@ function QuickCreate() {
         attachments: [],
         // 部门信息
         department: department ? department.name : null,
-        create_work_record: department !== null
+        source: '快速创建'
       }
 
       const result = await folderApi.create(requestData)

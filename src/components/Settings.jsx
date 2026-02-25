@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Drawer, Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor, Radio, Modal } from 'antd'
+import { Drawer, Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor, Radio, Modal, Tooltip } from 'antd'
 import { MailOutlined, LockOutlined, GlobalOutlined, FolderOutlined } from '@ant-design/icons'
 import { mailApi, USE_MOCK } from '../services/api'
 import { getSettings, saveSettings, formatFolderName } from '../services/settings'
@@ -312,7 +312,12 @@ function Settings() {
             </div>
 
             <div className="setting-item">
-              <label>保存位置</label>
+              <label>
+                工作目录
+                <Tooltip title="生成工作文件夹的位置，也是归档功能扫描的目录。建议设置为桌面。">
+                  <span style={{ marginLeft: 4, color: '#999', cursor: 'help' }}>❓</span>
+                </Tooltip>
+              </label>
               <Space.Compact style={{ width: '100%' }}>
                 <Input
                   prefix={<FolderOutlined />}

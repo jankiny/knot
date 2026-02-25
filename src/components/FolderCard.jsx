@@ -1,8 +1,8 @@
-import { Card, Tag, Checkbox, Select, Tooltip } from 'antd'
-import { FolderOutlined, FileMarkdownOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { Card, Tag, Button, Tooltip, Space } from 'antd'
+import { FolderOutlined, FileTextOutlined, ClockCircleOutlined, SendOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons'
 import './FolderCard.css'
 
-function FolderCard({ folder, departments, selected, onSelect, selectedDeptId, onDeptChange }) {
+function FolderCard({ folder, departments, onArchive, onEditDept, onViewContent }) {
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     try {
@@ -19,22 +19,11 @@ function FolderCard({ folder, departments, selected, onSelect, selectedDeptId, o
     }
   }
 
-  // 根据工作记录中的部门自动匹配
-  const matchedDept = folder.department
-    ? departments.find(d => d.name === folder.department)
-    : null
-
-  const currentDeptId = selectedDeptId || (matchedDept ? matchedDept.id : null)
+  const hasDept = folder.department && folder.department.trim() !== ''
 
   return (
-    <Card className={`folder-card ${selected ? 'selected' : ''}`} size="small">
+    <Card className="folder-card" size="small">
       <div className="folder-card-content">
-        <Checkbox
-          checked={selected}
-          onChange={(e) => onSelect(folder.path, e.target.checked)}
-          className="folder-checkbox"
-        />
-
         <div className="folder-info">
           <div className="folder-name">
             <FolderOutlined className="folder-icon" />
@@ -42,40 +31,74 @@ function FolderCard({ folder, departments, selected, onSelect, selectedDeptId, o
           </div>
 
           <div className="folder-meta">
-            <Tooltip title="最后修改时间">
-              <span className="meta-item">
-                <ClockCircleOutlined />
-                {formatDate(folder.modified)}
-              </span>
-            </Tooltip>
-
-            {folder.has_work_record && (
-              <Tooltip title={`工作记录：${folder.department || '未指定部门'}`}>
-                <Tag icon={<FileMarkdownOutlined />} color="green">
-                  {folder.department || '有工作记录'}
-                </Tag>
+            {folder.create_time && (
+              <Tooltip title="创建时间">
+                <span className="meta-item">
+                  <ClockCircleOutlined />
+                  {folder.create_time}
+                </span>
               </Tooltip>
             )}
 
-            {!folder.has_work_record && (
-              <Tag color="default">无工作记录</Tag>
+            {folder.source && (
+              <Tag color="blue" style={{ marginLeft: 4 }}>{folder.source}</Tag>
+            )}
+
+            {hasDept ? (
+              <Tag color="green" style={{ marginLeft: 4 }}>{folder.department}</Tag>
+            ) : (
+              <Tag color="default" style={{ marginLeft: 4 }}>未指定部门</Tag>
+            )}
+
+            {folder.file_count > 0 && (
+              <span className="meta-item" style={{ marginLeft: 4 }}>
+                <FileTextOutlined />
+                {folder.file_count} 个文件
+              </span>
             )}
           </div>
+
+          {folder.content && (
+            <div className="folder-content-preview">
+              {folder.content.length > 80 ? folder.content.substring(0, 80) + '...' : folder.content}
+            </div>
+          )}
         </div>
 
-        <div className="folder-dept-select">
-          <Select
-            size="small"
-            placeholder="选择部门"
-            value={currentDeptId}
-            onChange={(value) => onDeptChange(folder.path, value)}
-            options={departments.map(d => ({
-              label: d.name,
-              value: d.id
-            }))}
-            style={{ width: 120 }}
-            allowClear
-          />
+        <div className="folder-actions">
+          <Space>
+            <Tooltip title="查看/编辑工作记录">
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => onViewContent(folder)}
+              >
+                记录
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="编辑归属部门">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => onEditDept(folder)}
+              >
+                部门
+              </Button>
+            </Tooltip>
+
+            <Tooltip title={hasDept ? '归档到部门目录' : '请先指定部门'}>
+              <Button
+                size="small"
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={() => onArchive(folder)}
+                disabled={!hasDept}
+              >
+                归档
+              </Button>
+            </Tooltip>
+          </Space>
         </div>
       </div>
     </Card>

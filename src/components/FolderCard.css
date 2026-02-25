@@ -1,27 +1,16 @@
 .folder-card {
-  margin-bottom: 8px;
-  border: 1px solid #f0f0f0;
-  transition: all 0.2s;
+  transition: box-shadow 0.2s;
 }
 
 .folder-card:hover {
-  border-color: #d9d9d9;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.folder-card.selected {
-  border-color: #1890ff;
-  background: #e6f7ff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .folder-card-content {
   display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.folder-checkbox {
-  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .folder-info {
@@ -30,39 +19,45 @@
 }
 
 .folder-name {
+  font-weight: 500;
+  font-size: 14px;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
-.folder-icon {
+.folder-name .folder-icon {
   color: #faad14;
   font-size: 16px;
-}
-
-.folder-name span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .folder-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px;
   font-size: 12px;
-  color: #888;
+  color: #999;
 }
 
-.meta-item {
-  display: flex;
+.folder-meta .meta-item {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
-.folder-dept-select {
+.folder-content-preview {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.5;
+  padding: 4px 8px;
+  background: #fafafa;
+  border-radius: 4px;
+  border-left: 2px solid #d9d9d9;
+}
+
+.folder-actions {
   flex-shrink: 0;
 }

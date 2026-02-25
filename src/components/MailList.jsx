@@ -11,7 +11,7 @@ function MailList() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState({})
   const [previewMail, setPreviewMail] = useState(null)
-  const [loadingDetail, setLoadingDetail] = useState({})
+  const [loadingDetail, setLoadingDetail] = useState(false)
   // 当前处于视口视野内的主要月份
   const [activeMonthKey, setActiveMonthKey] = useState('')
   // 部门选择弹窗状态
@@ -275,9 +275,9 @@ function MailList() {
         save_formats: settings.saveFormats || ['txt'],
         raw_content: mailData.raw_content || '',
         attachments: mailData.attachments || [],
-        // 部门信息，用于生成工作记录.md
+        // 部门信息
         department: department ? department.name : null,
-        create_work_record: department !== null
+        source: '邮件'
       }
 
       // 始终使用 createWithAttachments，如果有附件会自动下载
@@ -298,7 +298,7 @@ function MailList() {
   // 预览邮件（先加载详情）
   const handlePreviewMail = async (mail) => {
     if (!mail.body) {
-      setLoadingDetail(prev => ({ ...prev, [mail.id]: true }))
+      setLoadingDetail(true)
       try {
         const result = await mailApi.getMailDetail(mail.id)
         if (result.success && result.data) {
@@ -316,7 +316,7 @@ function MailList() {
         message.error('加载邮件详情失败')
         setPreviewMail(mail)
       } finally {
-        setLoadingDetail(prev => ({ ...prev, [mail.id]: false }))
+        setLoadingDetail(false)
       }
     } else {
       setPreviewMail(mail)
@@ -459,7 +459,7 @@ function MailList() {
                         <Button
                           icon={<EyeOutlined />}
                           onClick={() => handlePreviewMail(mail)}
-                          loading={loadingDetail[mail.id]}
+                          loading={loadingDetail}
                         />
                       </Tooltip>
 
