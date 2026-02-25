@@ -4,13 +4,13 @@
 }
 
 /* 右侧主布局区域 */
-.app-layout > .ant-layout {
+.app-layout>.ant-layout {
   margin-left: 200px;
   transition: margin-left 0.2s;
 }
 
 /* 侧边栏折叠时调整右侧边距 */
-.app-layout .ant-layout-sider-collapsed + .ant-layout {
+.app-layout .ant-layout-sider-collapsed+.ant-layout {
   margin-left: 80px;
 }
 
