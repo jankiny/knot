@@ -477,19 +477,25 @@ function MailList() {
                   </div>
 
                   {mail.attachments && mail.attachments.length > 0 && (
-                    <Collapse ghost className="attachments-collapse">
-                      <Collapse.Panel header="查看附件详情" key="1">
-                        <ul className="attachment-list">
-                          {mail.attachments.map((att, idx) => (
-                            <li key={idx}>
-                              <PaperClipOutlined />
-                              <span className="att-name">{att.filename}</span>
-                              <span className="att-size">{formatFileSize(att.size)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </Collapse.Panel>
-                    </Collapse>
+                    <Collapse
+                      ghost
+                      className="attachments-collapse"
+                      items={[{
+                        key: '1',
+                        label: '查看附件详情',
+                        children: (
+                          <ul className="attachment-list">
+                            {mail.attachments.map((att, idx) => (
+                              <li key={idx}>
+                                <PaperClipOutlined />
+                                <span className="att-name">{att.filename}</span>
+                                <span className="att-size">{formatFileSize(att.size)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )
+                      }]}
+                    />
                   )}
                 </Card>
               )}

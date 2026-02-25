@@ -80,7 +80,7 @@ function QuickCreate() {
 
   return (
     <div className="quick-create">
-      <Card bordered={false}>
+      <Card variant="borderless">
         <Title level={4}>快速创建工作文件夹</Title>
         <Text type="secondary">
           用于非邮件来源的工作任务，创建后可使用自动归档功能
