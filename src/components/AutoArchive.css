@@ -1,29 +1,70 @@
 .auto-archive {
-  max-width: 800px;
-}
-
-.archive-header h2 {
-  margin-bottom: 4px;
-}
-
-.archive-header .header-desc {
-  color: #888;
-  margin-bottom: 20px;
-}
-
-.scan-section {
-  margin-bottom: 20px;
+  width: 100%;
 }
 
 .loading-container {
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
+  align-items: center;
+  min-height: 300px;
+  padding: 50px;
+}
+
+.archive-list-container {
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.archive-list-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .folders-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* 右侧侧边栏 - 与邮件列表一致 */
+.archive-sidebar {
+  position: sticky;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 32px;
+}
+
+.archive-sidebar .scan-btn {
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: none;
+  color: #666;
+  background: #fff;
+  transition: all 0.3s;
+}
+
+.archive-sidebar .scan-btn:hover {
+  color: #1890ff;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.2);
+}
+
+.archive-timeline {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  position: relative;
+}
+
+.archive-timeline::-webkit-scrollbar {
+  display: none;
 }
