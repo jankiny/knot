@@ -1,7 +1,12 @@
-const { app, BrowserWindow, shell, Menu, ipcMain, dialog, safeStorage } = require('electron')
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog, safeStorage, session } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+
+// 禁用开发时的 CSP 警告
+if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+  process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
+}
 
 let mainWindow
 let backendProcess
@@ -48,6 +53,16 @@ function createWindow() {
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
+
+    // 加载 React DevTools
+    try {
+      const { default: installExtension, REACT_DEVELOPER_TOOLS } = require('electron-devtools-installer')
+      installExtension(REACT_DEVELOPER_TOOLS)
+        .then((name) => console.log(`Installed DevTools: ${name}`))
+        .catch((err) => console.log('DevTools Installation Error:', err))
+    } catch (e) {
+      console.log('electron-devtools-installer 未安装，跳过加载 React DevTools')
+    }
   } else {
     // 生产模式加载打包后的文件
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))

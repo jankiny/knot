@@ -179,8 +179,9 @@ function AutoArchive() {
       )}
 
       {loading && (
-        <div className="loading-container">
-          <Spin tip="扫描中..." />
+        <div className="loading-container" style={{ textAlign: 'center', padding: '50px' }}>
+          <Spin />
+          <div style={{ marginTop: 16, color: '#999' }}>扫描中...</div>
         </div>
       )}
 

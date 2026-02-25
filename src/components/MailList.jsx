@@ -240,8 +240,9 @@ function MailList() {
 
   if (loading) {
     return (
-      <div className="loading-container">
-        <Spin size="large" tip="加载邮件列表中..." />
+      <div className="loading-container" style={{ textAlign: 'center', padding: '50px' }}>
+        <Spin size="large" />
+        <div style={{ marginTop: 16, color: '#999' }}>加载邮件列表中...</div>
       </div>
     )
   }
