@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Drawer, Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor } from 'antd'
+import { Drawer, Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor, Radio, Modal } from 'antd'
 import { MailOutlined, LockOutlined, GlobalOutlined, FolderOutlined } from '@ant-design/icons'
 import { mailApi, USE_MOCK } from '../services/api'
 import { getSettings, saveSettings, formatFolderName } from '../services/settings'
@@ -124,6 +124,28 @@ function Settings() {
     }
   }
 
+  const handleWindowStyleChange = async (e) => {
+    const newStyle = e.target.value
+    updateSetting('windowStyle', newStyle)
+
+    // 通知Electron主进程存储该设置
+    if (window.electronAPI?.saveSetting) {
+      await window.electronAPI.saveSetting('windowStyle', newStyle)
+    }
+
+    Modal.confirm({
+      title: '重启生效',
+      content: '窗口样式的更改需要重启应用后才会生效，是否立即重启？',
+      okText: '立即重启',
+      cancelText: '稍后重启',
+      onOk: () => {
+        if (window.electronAPI?.restartApp) {
+          window.electronAPI.restartApp()
+        }
+      }
+    })
+  }
+
   const handleSelectFolder = async () => {
     if (window.electronAPI?.selectFolder) {
       const selectedPath = await window.electronAPI.selectFolder()
@@ -161,6 +183,20 @@ function Settings() {
                   : '当前连接真实邮件服务器'}
               </p>
             </div>
+          </div>
+          <div className="settings-section" style={{ marginTop: 24 }}>
+            <div className="section-header">
+              <h3>窗口样式</h3>
+            </div>
+            <Radio.Group
+              onChange={handleWindowStyleChange}
+              value={settings.windowStyle}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="integrated" style={{ width: 120, textAlign: 'center' }}>一体化</Radio.Button>
+              <Radio.Button value="classic" style={{ width: 120, textAlign: 'center' }}>经典</Radio.Button>
+            </Radio.Group>
           </div>
         </div>
 

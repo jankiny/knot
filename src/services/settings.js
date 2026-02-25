@@ -3,6 +3,8 @@
 const SETTINGS_KEY = 'knot_settings'
 
 const DEFAULT_SETTINGS = {
+  // 窗口样式: 'integrated' (一体化) | 'classic' (经典)
+  windowStyle: 'integrated',
   folderPath: '~/Desktop',  // 默认桌面
   // 文件夹命名格式，支持变量：
   // {{YYYY}} - 年份，{{MM}} - 月份，{{DD}} - 日期

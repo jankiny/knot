@@ -32,5 +32,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   decryptPassword: (encryptedBase64) => ipcRenderer.invoke('decrypt-password', encryptedBase64),
 
   // 检查加密是否可用
-  isEncryptionAvailable: () => ipcRenderer.invoke('is-encryption-available')
+  isEncryptionAvailable: () => ipcRenderer.invoke('is-encryption-available'),
+
+  // 窗口控制
+  minimizeWindow: () => ipcRenderer.invoke('window-minimize'),
+  maximizeWindow: () => ipcRenderer.invoke('window-maximize'),
+  closeWindow: () => ipcRenderer.invoke('window-close'),
+  isWindowMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+
+  // 监听窗口最大化状态变化
+  onMaximizedStateChange: (callback) => {
+    ipcRenderer.on('window-maximized-state', (event, isMaximized) => callback(isMaximized))
+  },
+
+  // 移除事件监听
+  removeMaximizedStateListener: () => {
+    ipcRenderer.removeAllListeners('window-maximized-state')
+  },
+
+  // 保存设置到系统级文件
+  saveSetting: (key, value) => ipcRenderer.invoke('save-setting', key, value),
+
+  // 重启应用
+  restartApp: () => ipcRenderer.invoke('restart-app')
 })
