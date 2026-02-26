@@ -75,15 +75,25 @@ export const folderApi = {
       }
       throw error
     }
+  },
+
+  // 检查 hash 是否已存在（查重）
+  checkHash: async (hash, scanPath, archivePaths = []) => {
+    const params = new URLSearchParams({ hash, scan_path: scanPath })
+    archivePaths.forEach(ap => {
+      if (ap) params.append('archive_path', ap)
+    })
+    const response = await axios.get(`${API_BASE}/folder/check-hash?${params.toString()}`)
+    return response.data
   }
 }
 
 export const archiveApi = {
   // 扫描工作文件夹
-  scan: async (scanPath) => {
-    const response = await axios.get(`${API_BASE}/archive/scan`, {
-      params: { scan_path: scanPath }
-    })
+  scan: async (scanPath, recursive = false) => {
+    const params = { scan_path: scanPath }
+    if (recursive) params.recursive = 'true'
+    const response = await axios.get(`${API_BASE}/archive/scan`, { params })
     return response.data
   },
 

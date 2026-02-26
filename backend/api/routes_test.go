@@ -56,6 +56,7 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		{"GET", "/api/mail/123/detail"},
 		{"POST", "/api/folder/create"},
 		{"POST", "/api/folder/create-with-attachments"},
+		{"GET", "/api/folder/check-hash"},
 		{"GET", "/api/archive/scan"},
 		{"POST", "/api/archive/move"},
 		{"POST", "/api/archive/batch-move"},
@@ -608,5 +609,114 @@ func TestJsonError_ReturnsDetailField(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+// ========== Hash Tests ==========
+
+func TestGenerateHash_Consistency(t *testing.T) {
+	hash1 := GenerateHash("test|2026-02-25|sender@example.com")
+	hash2 := GenerateHash("test|2026-02-25|sender@example.com")
+	if hash1 != hash2 {
+		t.Errorf("same input should produce same hash, got %s and %s", hash1, hash2)
+	}
+	if len(hash1) != 16 {
+		t.Errorf("hash should be 16 chars, got %d", len(hash1))
+	}
+
+	// Different input should produce different hash
+	hash3 := GenerateHash("different|2026-02-26|other@example.com")
+	if hash1 == hash3 {
+		t.Error("different inputs should produce different hashes")
+	}
+}
+
+func TestHandleCreateFolder_WithHash(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+
+	hash := GenerateHash("邮件主题|2026-02-25|test@example.com")
+	body := FolderRequest{
+		Subject:    "邮件主题",
+		Date:       "2026-02-25",
+		BasePath:   tmpDir,
+		FolderName: "2026.02.25_邮件主题",
+		Source:     "邮件",
+		Hash:       hash,
+	}
+
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/folder/create", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify 工作记录.md contains the hash
+	wrFile := filepath.Join(tmpDir, "2026.02.25_邮件主题", "工作记录.md")
+	content, _ := os.ReadFile(wrFile)
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "标识: "+hash) {
+		t.Errorf("工作记录.md should contain '标识: %s', got:\n%s", hash, contentStr)
+	}
+}
+
+func TestHandleCheckHash_Found(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	hash := GenerateHash("test-check|2026-02-25|sender@test.com")
+
+	// Create a folder with work record containing the hash
+	folderPath := filepath.Join(tmpDir, "2026.02.25_test-check")
+	os.MkdirAll(folderPath, 0755)
+	wr := "---\n归属部门: 技术部\n创建时间: 2026-02-25 10:00\n来源: 邮件\n标识: " + hash + "\n---\n# 工作记录\n"
+	os.WriteFile(filepath.Join(folderPath, "工作记录.md"), []byte(wr), 0644)
+
+	router := SetupRoutes()
+	req := httptest.NewRequest("GET", "/api/folder/check-hash?hash="+hash+"&scan_path="+tmpDir, nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["found"] != true {
+		t.Error("expected found=true")
+	}
+	if resp["count"].(float64) != 1 {
+		t.Errorf("expected count=1, got %v", resp["count"])
+	}
+	matches := resp["matches"].([]interface{})
+	m := matches[0].(map[string]interface{})
+	if m["name"] != "2026.02.25_test-check" {
+		t.Errorf("expected name '2026.02.25_test-check', got '%v'", m["name"])
+	}
+	if m["status"] != "working" {
+		t.Errorf("expected status 'working', got '%v'", m["status"])
+	}
+}
+
+func TestHandleCheckHash_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	router := SetupRoutes()
+	req := httptest.NewRequest("GET", "/api/folder/check-hash?hash=nonexistenthash&scan_path="+tmpDir, nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["found"] != false {
+		t.Error("expected found=false")
 	}
 }

@@ -2,6 +2,8 @@ package api
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -45,6 +47,7 @@ func SetupRoutes() *chi.Mux {
 
 		r.Post("/folder/create", handleCreateFolder)
 		r.Post("/folder/create-with-attachments", handleCreateFolderWithAttachments)
+		r.Get("/folder/check-hash", handleCheckHash)
 
 		r.Get("/archive/scan", handleScanWorkFolders)
 		r.Post("/archive/move", handleArchiveMove)
@@ -174,6 +177,7 @@ type FolderRequest struct {
 	RawContent          string                   `json:"raw_content"`
 	Department          string                   `json:"department"`
 	Source              string                   `json:"source"`
+	Hash                string                   `json:"hash"`
 }
 
 func getBaseFolder(basePath string) string {
@@ -262,7 +266,11 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 		source = "邮件"
 	}
 	department := req.Department // 可以为空
-	wrContent := fmt.Sprintf("---\n归属部门: %s\n创建时间: %s\n来源: %s\n---\n# 工作记录\n\n> 此文件由 Knot（绳结）自动创建，用于归档和自动生成周报。\n\n<!-- 请在此记录工作过程，AI 将根据此内容生成周报 -->\n\n", department, now, source)
+	hashLine := ""
+	if req.Hash != "" {
+		hashLine = fmt.Sprintf("标识: %s\n", req.Hash)
+	}
+	wrContent := fmt.Sprintf("---\n归属部门: %s\n创建时间: %s\n来源: %s\n%s---\n# 工作记录\n\n> 此文件由 Knot（绳结）自动创建，用于归档和自动生成周报。\n\n<!-- 请在此记录工作过程，AI 将根据此内容生成周报 -->\n\n", department, now, source, hashLine)
 	wrPath := filepath.Join(folderPath, "工作记录.md")
 	os.WriteFile(wrPath, []byte(wrContent), 0644)
 
@@ -289,6 +297,7 @@ type WorkRecordInfo struct {
 	CreateTime string `json:"create_time"`
 	Source     string `json:"source"`
 	Content    string `json:"content"`
+	Hash       string `json:"hash"`
 }
 
 // parseWorkRecord parses 工作记录.md with YAML frontmatter format.
@@ -323,6 +332,8 @@ func parseWorkRecord(filePath string) (*WorkRecordInfo, error) {
 				info.CreateTime = val
 			case "来源":
 				info.Source = val
+			case "标识":
+				info.Hash = val
 			}
 		}
 	}
@@ -344,6 +355,7 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 		scanPath = "~/Desktop"
 	}
 	scanPath = getBaseFolder(scanPath)
+	recursive := r.URL.Query().Get("recursive") == "true"
 
 	var folders []map[string]interface{}
 
@@ -353,28 +365,23 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		folderPath := filepath.Join(scanPath, entry.Name())
+	// collectFolder scans a single folder for work record and appends to folders slice
+	collectFolder := func(folderPath string, name string) {
 		wrPath := filepath.Join(folderPath, "工作记录.md")
 		if _, err := os.Stat(wrPath); os.IsNotExist(err) {
-			continue
+			return
 		}
 
 		info, err := parseWorkRecord(wrPath)
 		if err != nil {
-			continue
+			return
 		}
 
-		// Get folder modification time
 		var modTime string
-		if fi, err := entry.Info(); err == nil {
+		if fi, err := os.Stat(folderPath); err == nil {
 			modTime = fi.ModTime().Format("2006-01-02T15:04:05")
 		}
 
-		// Calculate folder size (file count)
 		fileCount := 0
 		filepath.WalkDir(folderPath, func(path string, d fs.DirEntry, err error) error {
 			if err == nil && !d.IsDir() {
@@ -384,7 +391,7 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 		})
 
 		folders = append(folders, map[string]interface{}{
-			"name":            entry.Name(),
+			"name":            name,
 			"path":            folderPath,
 			"modified":        modTime,
 			"has_work_record": true,
@@ -393,7 +400,31 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 			"source":          info.Source,
 			"content":         info.Content,
 			"file_count":      fileCount,
+			"hash":            info.Hash,
 		})
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		folderPath := filepath.Join(scanPath, entry.Name())
+		collectFolder(folderPath, entry.Name())
+
+		// 递归模式：也扫描子目录（如归档目录 archivePath/2026/folderName/）
+		if recursive {
+			subEntries, err := os.ReadDir(folderPath)
+			if err != nil {
+				continue
+			}
+			for _, subEntry := range subEntries {
+				if !subEntry.IsDir() {
+					continue
+				}
+				subFolderPath := filepath.Join(folderPath, subEntry.Name())
+				collectFolder(subFolderPath, subEntry.Name())
+			}
+		}
 	}
 
 	if folders == nil {
@@ -546,8 +577,12 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 		source = "邮件"
 	}
 
-	// Rewrite in new YAML frontmatter format
-	newContent := fmt.Sprintf("---\n归属部门: %s\n创建时间: %s\n来源: %s\n---\n# 工作记录\n\n> 此文件由 Knot（绳结）自动创建，用于归档和自动生成周报。\n\n<!-- 请在此记录工作过程，AI 将根据此内容生成周报 -->\n\n%s\n", existing.Department, existing.CreateTime, source, existing.Content)
+	// Rewrite in new YAML frontmatter format (preserve hash if exists)
+	hashLine := ""
+	if existing.Hash != "" {
+		hashLine = fmt.Sprintf("标识: %s\n", existing.Hash)
+	}
+	newContent := fmt.Sprintf("---\n归属部门: %s\n创建时间: %s\n来源: %s\n%s---\n# 工作记录\n\n> 此文件由 Knot（绳结）自动创建，用于归档和自动生成周报。\n\n<!-- 请在此记录工作过程，AI 将根据此内容生成周报 -->\n\n%s\n", existing.Department, existing.CreateTime, source, hashLine, existing.Content)
 
 	if err := os.WriteFile(wrPath, []byte(newContent), 0644); err != nil {
 		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("写入失败: %v", err))
@@ -557,5 +592,117 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "工作记录已更新",
+	})
+}
+
+// GenerateHash creates a short SHA-256 hash (first 16 hex chars) from the input string.
+func GenerateHash(input string) string {
+	h := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(h[:])[:16]
+}
+
+// scanDirForHash scans a directory for work records matching the given hash.
+// Returns list of matching folder info maps with a "status" field.
+func scanDirForHash(dirPath, hash, status string) []map[string]interface{} {
+	var results []map[string]interface{}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return results
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		folderPath := filepath.Join(dirPath, entry.Name())
+		wrPath := filepath.Join(folderPath, "工作记录.md")
+		if _, err := os.Stat(wrPath); os.IsNotExist(err) {
+			continue
+		}
+
+		info, err := parseWorkRecord(wrPath)
+		if err != nil || info.Hash != hash {
+			continue
+		}
+
+		results = append(results, map[string]interface{}{
+			"name":       entry.Name(),
+			"path":       folderPath,
+			"department": info.Department,
+			"source":     info.Source,
+			"status":     status,
+		})
+	}
+
+	// Also scan subdirectories (e.g. archive/2026/xxx)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		subDir := filepath.Join(dirPath, entry.Name())
+		subEntries, err := os.ReadDir(subDir)
+		if err != nil {
+			continue
+		}
+		for _, subEntry := range subEntries {
+			if !subEntry.IsDir() {
+				continue
+			}
+			folderPath := filepath.Join(subDir, subEntry.Name())
+			wrPath := filepath.Join(folderPath, "工作记录.md")
+			if _, err := os.Stat(wrPath); os.IsNotExist(err) {
+				continue
+			}
+			info, err := parseWorkRecord(wrPath)
+			if err != nil || info.Hash != hash {
+				continue
+			}
+			results = append(results, map[string]interface{}{
+				"name":       subEntry.Name(),
+				"path":       folderPath,
+				"department": info.Department,
+				"source":     info.Source,
+				"status":     status,
+			})
+		}
+	}
+
+	return results
+}
+
+func handleCheckHash(w http.ResponseWriter, r *http.Request) {
+	hash := r.URL.Query().Get("hash")
+	if hash == "" {
+		jsonError(w, http.StatusBadRequest, "缺少 hash 参数")
+		return
+	}
+
+	scanPath := r.URL.Query().Get("scan_path")
+	if scanPath == "" {
+		scanPath = "~/Desktop"
+	}
+	scanPath = getBaseFolder(scanPath)
+
+	archivePaths := r.URL.Query()["archive_path"]
+
+	var matches []map[string]interface{}
+
+	// Scan working directory
+	matches = append(matches, scanDirForHash(scanPath, hash, "working")...)
+
+	// Scan archive directories
+	for _, ap := range archivePaths {
+		if ap != "" {
+			ap = getBaseFolder(ap)
+			matches = append(matches, scanDirForHash(ap, hash, "archived")...)
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"found":   len(matches) > 0,
+		"count":   len(matches),
+		"matches": matches,
 	})
 }

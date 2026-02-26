@@ -3,7 +3,7 @@ import { Card, Input, Button, DatePicker, message, Typography, Space, Divider } 
 import { FolderAddOutlined, CalendarOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { folderApi } from '../services/api'
-import { getSettings, getDepartments } from '../services/settings'
+import { getSettings, getDepartments, generateFolderHash } from '../services/settings'
 import DepartmentSelectModal from './DepartmentSelectModal'
 import './QuickCreate.css'
 
@@ -60,7 +60,8 @@ function QuickCreate() {
         attachments: [],
         // 部门信息
         department: department ? department.name : null,
-        source: '快速创建'
+        source: '快速创建',
+        hash: await generateFolderHash(folderName)
       }
 
       const result = await folderApi.create(requestData)

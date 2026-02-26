@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { List, Card, Button, Tag, Collapse, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
-import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { mailApi, folderApi, USE_MOCK } from '../services/api'
-import { getSettings, formatFolderName, cleanSubjectForFolder } from '../services/settings'
+import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
+import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
+import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments } from '../services/settings'
 import DepartmentSelectModal from './DepartmentSelectModal'
 import './MailList.css'
 
@@ -19,14 +19,10 @@ function MailList() {
   const [selectedMailForFolder, setSelectedMailForFolder] = useState(null)
   // 连接状态
   const [connectionError, setConnectionError] = useState(null)
-  // 已生成的邮件ID列表
-  const [generatedIds, setGeneratedIds] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('knot_generated_mails') || '[]')
-    } catch {
-      return []
-    }
-  })
+  // 已生成的邮件 hash 映射：{ mailHash: 'working' | 'archived' }
+  const [generatedHashMap, setGeneratedHashMap] = useState({})
+  // 邮件 id -> hash 缓存（用于同步渲染中查找状态）
+  const [mailHashCache, setMailHashCache] = useState({})
 
   // 记录最近一次获取数据的天数范围
   const [fetchDays, setFetchDays] = useState(7)
@@ -76,7 +72,11 @@ function MailList() {
       const result = await mailApi.getMailList(limit, days)
       // 再次检查：如果在请求期间又触发了新的 fetchMails，忽略旧结果
       if (currentFetchId !== fetchIdRef.current) return
-      setMails(result.data || [])
+      const mailData = result.data || []
+      setMails(mailData)
+
+      // 加载已生成状态：通过后端扫描工作目录获取已有的 hash
+      loadGeneratedHashes(mailData, settings)
     } catch (error) {
       // 如果是过时的请求，忽略其错误
       if (currentFetchId !== fetchIdRef.current) return
@@ -101,6 +101,51 @@ function MailList() {
   useEffect(() => {
     fetchMails()
   }, [])
+
+  // 加载已生成状态：扫描工作目录和归档目录，构建 hash -> status 映射
+  const loadGeneratedHashes = async (mailList, settings) => {
+    try {
+      // 为所有邮件预计算 hash
+      const hashCacheEntries = await Promise.all(
+        mailList.map(async (mail) => {
+          const hash = await generateMailHash(mail)
+          return [mail.id, hash]
+        })
+      )
+      const newMailHashCache = Object.fromEntries(hashCacheEntries)
+      setMailHashCache(newMailHashCache)
+
+      // 扫描工作目录
+      const scanResult = await archiveApi.scan(settings.scanPath || settings.folderPath)
+      const hashMap = {}
+      if (scanResult.success && scanResult.folders) {
+        scanResult.folders.forEach(f => {
+          if (f.hash) hashMap[f.hash] = 'working'
+        })
+      }
+
+      // 扫描各部门归档目录
+      const departments = getDepartments()
+      for (const dept of departments) {
+        if (dept.archivePath) {
+          try {
+            const archiveResult = await archiveApi.scan(dept.archivePath, true)
+            if (archiveResult.success && archiveResult.folders) {
+              archiveResult.folders.forEach(f => {
+                if (f.hash) hashMap[f.hash] = 'archived'
+              })
+            }
+          } catch {
+            // 归档目录不存在时忽略
+          }
+        }
+      }
+
+      setGeneratedHashMap(hashMap)
+    } catch (err) {
+      console.error('加载已生成状态失败:', err)
+    }
+  }
 
   // 计算时间轴数据
   const timelineData = useMemo(() => {
@@ -215,8 +260,46 @@ function MailList() {
     }
   }
 
-  // 打开部门选择弹窗（先加载邮件详情）
+  // 打开部门选择弹窗（先检查重复，再加载邮件详情）
   const openDeptModal = async (mail) => {
+    // 检查是否已生成过
+    try {
+      const mailHash = await generateMailHash(mail)
+      const settings = getSettings()
+      const departments = getDepartments()
+      const archivePaths = departments.map(d => d.archivePath).filter(Boolean)
+
+      const checkResult = await folderApi.checkHash(
+        mailHash,
+        settings.scanPath || settings.folderPath,
+        archivePaths
+      )
+
+      if (checkResult.found) {
+        const match = checkResult.matches[0]
+        const statusText = match.status === 'archived' ? '已归档' : '工作中'
+        const confirmed = await new Promise(resolve => {
+          Modal.confirm({
+            title: '该邮件已生成过工作目录',
+            content: (
+              <div>
+                <p>已存在目录：<strong>{match.name}</strong>（{statusText}）</p>
+                <p>再次生成将创建新的工作目录，原有工作记录不受影响。是否继续？</p>
+              </div>
+            ),
+            okText: '继续生成',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false)
+          })
+        })
+        if (!confirmed) return
+      }
+    } catch (err) {
+      console.error('查重失败:', err)
+      // 查重失败不阻断流程
+    }
+
     // 如果邮件还没有正文，先加载详情
     if (!mail.body) {
       try {
@@ -273,6 +356,7 @@ function MailList() {
 
       const settings = getSettings()
       const folderName = formatFolderName(settings.folderNameFormat, mailData)
+      const mailHash = await generateMailHash(mailData)
 
       const requestData = {
         mail_id: mailData.id,
@@ -291,17 +375,16 @@ function MailList() {
         attachments: mailData.attachments || [],
         // 部门信息
         department: department ? department.name : null,
-        source: '邮件'
+        source: '邮件',
+        hash: mailHash
       }
 
       // 始终使用 createWithAttachments，如果有附件会自动下载
       const result = await folderApi.createWithAttachments(requestData)
       message.success(result.message)
 
-      // 保存已生成标记
-      const newGeneratedIds = [...generatedIds, mail.id]
-      setGeneratedIds(newGeneratedIds)
-      localStorage.setItem('knot_generated_mails', JSON.stringify(newGeneratedIds))
+      // 更新已生成 hash 映射
+      setGeneratedHashMap(prev => ({ ...prev, [mailHash]: 'working' }))
     } catch (error) {
       message.error(error.response?.data?.detail || '创建文件夹失败')
     } finally {
@@ -457,11 +540,24 @@ function MailList() {
                     </div>
 
                     <div className="mail-actions">
-                      {generatedIds.includes(mail.id) && (
-                        <Tag icon={<CheckCircleOutlined />} color="success">
-                          已生成
-                        </Tag>
-                      )}
+                      {(() => {
+                        const mailHash = mailHashCache[mail.id]
+                        const status = mailHash && generatedHashMap[mailHash]
+                        if (status === 'archived') {
+                          return (
+                            <Tag icon={<InboxOutlined />} color="default">
+                              已归档
+                            </Tag>
+                          )
+                        } else if (status === 'working') {
+                          return (
+                            <Tag icon={<CheckCircleOutlined />} color="success">
+                              已生成
+                            </Tag>
+                          )
+                        }
+                        return null
+                      })()}
 
                       {(mail.attachment_count > 0 || mail.has_attachments) && (
                         <Tag icon={<PaperClipOutlined />} color="blue">
