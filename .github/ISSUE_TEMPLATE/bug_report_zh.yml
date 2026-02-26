@@ -1,0 +1,49 @@
+name: 🐛 Bug Report (问题报告)
+description: 创建一个错误报告来帮助我们改进
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您抽出宝贵时间填写此错误报告！
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: 问题描述
+      description: 清晰简洁地描述这个 bug 是什么。
+      placeholder: 告诉我们您看到了什么！
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: 重现步骤
+      description: 重现此错误的步骤。
+      placeholder: |
+        1. 打开 '...'
+        2. 点击 '...'
+        3. 向下滚动到 '...'
+        4. 看到错误
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: 预期行为
+      description: 清晰简洁地描述您期望发生的事情。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 请提供关于您的系统环境信息。
+      value: |
+        - 操作系统: [如 Windows, macOS, Linux]
+        - 应用版本: [如 1.1.6]
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 附加信息
+      description: 在这里添加关于这个 bug 的任何其他上下文、日志或截图。
