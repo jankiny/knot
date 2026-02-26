@@ -1,232 +1,390 @@
-import { useState, useEffect } from 'react'
-import { Button, Space, Empty, Spin, message, Alert, Input, Checkbox } from 'antd'
-import { ScanOutlined, FolderOpenOutlined, SendOutlined, FolderOutlined } from '@ant-design/icons'
+import { useState, useEffect, useMemo } from 'react'
+import { Button, Empty, Spin, message, Tag, Modal, Select, Tooltip, Space, Input } from 'antd'
+import { SearchOutlined, SendOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons'
 import { archiveApi } from '../services/api'
-import { getSettings, saveSettings, getDepartments, getDepartmentById } from '../services/settings'
+import { getSettings, getDepartments, getDepartmentById } from '../services/settings'
 import FolderCard from './FolderCard'
 import './AutoArchive.css'
 
 function AutoArchive() {
   const [loading, setLoading] = useState(false)
-  const [archiving, setArchiving] = useState(false)
   const [folders, setFolders] = useState([])
-  const [scanPath, setScanPath] = useState('')
-  const [selectedFolders, setSelectedFolders] = useState({}) // { path: true }
-  const [folderDepts, setFolderDepts] = useState({}) // { path: deptId }
+  const [scanned, setScanned] = useState(false)
   const [departments, setDepartments] = useState([])
+  const [activeMonthKey, setActiveMonthKey] = useState('')
+
+  // 编辑部门弹窗
+  const [editDeptVisible, setEditDeptVisible] = useState(false)
+  const [editingFolder, setEditingFolder] = useState(null)
+  const [editDeptId, setEditDeptId] = useState(null)
+
+  // 查看/编辑内容弹窗
+  const [contentVisible, setContentVisible] = useState(false)
+  const [contentFolder, setContentFolder] = useState(null)
+  const [editContent, setEditContent] = useState('')
 
   useEffect(() => {
-    const settings = getSettings()
-    setScanPath(settings.scanPath || '~/Desktop')
     setDepartments(getDepartments())
+    // 进入页面自动扫描一次（静默模式，不弹提示）
+    handleScan(true)
   }, [])
 
-  const handleScan = async () => {
-    if (!scanPath.trim()) {
-      message.warning('请输入扫描目录')
-      return
+  // 计算时间轴数据（按月份分组）
+  const timelineData = useMemo(() => {
+    if (!folders || folders.length === 0) return []
+
+    const monthMap = new Map()
+    folders.forEach((folder) => {
+      const createTime = folder.create_time || ''
+      if (!createTime) return
+      // 从 "2026-02-25 10:00" 格式中提取年月
+      const match = createTime.match(/^(\d{4})-(\d{2})/)
+      if (!match) return
+      const year = match[1]
+      const month = match[2]
+      const monthKey = `${year}-${month}`
+      const monthLabel = `${year}年${parseInt(month)}月`
+
+      if (!monthMap.has(monthKey)) {
+        monthMap.set(monthKey, {
+          key: monthKey,
+          label: monthLabel,
+          folderPath: folder.path,
+          timestamp: new Date(createTime).getTime() || 0
+        })
+      }
+    })
+
+    return Array.from(monthMap.values()).sort((a, b) => b.timestamp - a.timestamp)
+  }, [folders])
+
+  // 监听滚动高亮月份
+  useEffect(() => {
+    if (!folders || folders.length === 0 || timelineData.length === 0) return
+
+    let visibleFolders = new Map()
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          visibleFolders.set(entry.target.id, entry.boundingClientRect.top)
+        } else {
+          visibleFolders.delete(entry.target.id)
+        }
+      })
+
+      if (visibleFolders.size > 0) {
+        let closestId = ''
+        let minTop = Infinity
+
+        for (const [id, top] of visibleFolders.entries()) {
+          const adjustedTop = top - 80
+          if (adjustedTop >= 0 && adjustedTop < minTop) {
+            minTop = adjustedTop
+            closestId = id
+          }
+        }
+        if (!closestId) {
+          let maxTop = -Infinity
+          for (const [id, top] of visibleFolders.entries()) {
+            if (top > maxTop) {
+              maxTop = top
+              closestId = id
+            }
+          }
+        }
+
+        if (closestId) {
+          const folderPath = closestId.replace('folder-', '')
+          const folder = folders.find(f => f.path === folderPath)
+          if (folder && folder.create_time) {
+            const match = folder.create_time.match(/^(\d{4})-(\d{2})/)
+            if (match) {
+              setActiveMonthKey(`${match[1]}-${match[2]}`)
+            }
+          }
+        }
+      }
+    }, {
+      rootMargin: '-80px 0px 0px 0px',
+      threshold: [0, 0.1, 0.5, 0.9, 1]
+    })
+
+    folders.forEach(folder => {
+      const el = document.getElementById(`folder-${folder.path}`)
+      if (el) observer.observe(el)
+    })
+
+    return () => observer.disconnect()
+  }, [folders, timelineData])
+
+  const scrollToFolder = (folderPath) => {
+    const element = document.getElementById(`folder-${folderPath}`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
+  }
+
+  const handleScan = async (silent = false) => {
+    const settings = getSettings()
+    const scanPath = settings.folderPath || '~/Desktop'
 
     setLoading(true)
     setFolders([])
-    setSelectedFolders({})
-    setFolderDepts({})
 
     try {
       const result = await archiveApi.scan(scanPath)
       if (result.success) {
         setFolders(result.folders || [])
-        // 自动根据工作记录中的部门匹配
-        const autoMatched = {}
-        result.folders.forEach(folder => {
-          if (folder.department) {
-            const matchedDept = departments.find(d => d.name === folder.department)
-            if (matchedDept) {
-              autoMatched[folder.path] = matchedDept.id
-            }
+        setScanned(true)
+        if (!silent) {
+          if (result.folders.length === 0) {
+            message.info('未找到含工作记录的文件夹')
+          } else {
+            message.success(`找到 ${result.folders.length} 个工作文件夹`)
           }
-        })
-        setFolderDepts(autoMatched)
-
-        if (result.folders.length === 0) {
-          message.info('未找到符合格式的工作文件夹')
-        } else {
-          message.success(`找到 ${result.folders.length} 个工作文件夹`)
         }
       }
     } catch (error) {
-      message.error(error.response?.data?.detail || '扫描失败')
+      if (!silent) {
+        message.error(error.response?.data?.detail || '扫描失败')
+      }
+      setScanned(true)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSelectFolder = (path, checked) => {
-    setSelectedFolders(prev => ({
-      ...prev,
-      [path]: checked
-    }))
-  }
-
-  const handleSelectAll = (checked) => {
-    if (checked) {
-      const all = {}
-      folders.forEach(f => { all[f.path] = true })
-      setSelectedFolders(all)
-    } else {
-      setSelectedFolders({})
-    }
-  }
-
-  const handleDeptChange = (path, deptId) => {
-    setFolderDepts(prev => ({
-      ...prev,
-      [path]: deptId
-    }))
-  }
-
-  const handleArchive = async () => {
-    const selectedPaths = Object.keys(selectedFolders).filter(p => selectedFolders[p])
-    if (selectedPaths.length === 0) {
-      message.warning('请选择要归档的文件夹')
+  // 归档操作
+  const handleArchive = async (folder) => {
+    const dept = departments.find(d => d.name === folder.department)
+    if (!dept) {
+      message.warning('请先编辑归属部门后再归档')
       return
     }
 
-    // 检查是否所有选中的都分配了部门
-    const items = []
-    for (const path of selectedPaths) {
-      const deptId = folderDepts[path]
-      if (!deptId) {
-        message.warning('请为所有选中的文件夹分配部门')
-        return
+    Modal.confirm({
+      title: '确认归档',
+      content: (
+        <div>
+          <p>将文件夹移动到归档目录：</p>
+          <p><strong>{folder.name}</strong></p>
+          <p>→ {dept.archivePath}/{folder.name.substring(0, 4)}/</p>
+        </div>
+      ),
+      okText: '确认归档',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await archiveApi.move(folder.path, dept.archivePath)
+          if (result.success) {
+            message.success(result.message || '归档成功')
+            setFolders(prev => prev.filter(f => f.path !== folder.path))
+          }
+        } catch (error) {
+          message.error(error.response?.data?.detail || '归档失败')
+        }
       }
-      const dept = getDepartmentById(deptId)
-      if (!dept) {
-        message.warning('部门配置无效')
-        return
-      }
-      items.push({
-        folder_path: path,
-        archive_path: dept.archivePath
-      })
-    }
+    })
+  }
 
-    setArchiving(true)
+  // 编辑部门
+  const handleEditDept = (folder) => {
+    setEditingFolder(folder)
+    const dept = departments.find(d => d.name === folder.department)
+    setEditDeptId(dept ? dept.id : null)
+    setEditDeptVisible(true)
+  }
+
+  const handleDeptSave = async () => {
+    if (!editDeptId || !editingFolder) return
+    const dept = getDepartmentById(editDeptId)
+    if (!dept) return
+
     try {
-      const result = await archiveApi.batchMove(items)
-      if (result.success) {
-        message.success(`归档完成：成功 ${result.success_count} 个，失败 ${result.fail_count} 个`)
-        // 刷新列表
-        handleScan()
-      }
+      await archiveApi.updateWorkRecord(editingFolder.path, dept.name, '')
+      message.success('归属部门已更新')
+      setFolders(prev => prev.map(f =>
+        f.path === editingFolder.path ? { ...f, department: dept.name } : f
+      ))
+      setEditDeptVisible(false)
+      setEditingFolder(null)
     } catch (error) {
-      message.error(error.response?.data?.detail || '归档失败')
-    } finally {
-      setArchiving(false)
+      message.error(error.response?.data?.detail || '更新失败')
     }
   }
 
-  const handleSelectScanFolder = async () => {
-    if (window.electronAPI?.selectFolder) {
-      const selectedPath = await window.electronAPI.selectFolder()
-      if (selectedPath) {
-        setScanPath(selectedPath)
-        saveSettings({ scanPath: selectedPath })
-      }
-    } else {
-      message.info('请手动输入路径，或在 Electron 应用中使用文件夹选择')
+  // 查看/编辑内容
+  const handleViewContent = (folder) => {
+    setContentFolder(folder)
+    setEditContent(folder.content || '')
+    setContentVisible(true)
+  }
+
+  const handleContentSave = async () => {
+    if (!contentFolder) return
+
+    try {
+      await archiveApi.updateWorkRecord(contentFolder.path, '', editContent)
+      message.success('工作记录已更新')
+      setFolders(prev => prev.map(f =>
+        f.path === contentFolder.path ? { ...f, content: editContent } : f
+      ))
+      setContentVisible(false)
+      setContentFolder(null)
+    } catch (error) {
+      message.error(error.response?.data?.detail || '更新失败')
     }
   }
 
-  const selectedCount = Object.values(selectedFolders).filter(Boolean).length
-  const allSelected = folders.length > 0 && selectedCount === folders.length
+  const settings = getSettings()
+
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <Spin size="large" />
+        <div style={{ marginTop: 16, color: '#999' }}>扫描工作文件夹中...</div>
+      </div>
+    )
+  }
 
   return (
     <div className="auto-archive">
-      <div className="archive-header">
-        <h2>自动归档</h2>
-        <p className="header-desc">扫描桌面工作文件夹，选择后一键归档到对应部门目录</p>
-      </div>
+      <div className="archive-list-container">
+        <div className="archive-list-content">
+          {!scanned && folders.length === 0 && (
+            <Empty
+              description={
+                <div>
+                  <p style={{ margin: '0 0 8px 0' }}>当前工作目录：{settings.folderPath || '~/Desktop'}</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>
+                    点击右侧扫描按钮查找工作文件夹，或在「设置 → 文件夹设置 → 工作目录」中修改扫描位置
+                  </p>
+                </div>
+              }
+            />
+          )}
 
-      <div className="scan-section">
-        <Space.Compact style={{ width: '100%', maxWidth: 500 }}>
-          <Input
-            prefix={<FolderOutlined />}
-            placeholder="扫描目录，如 ~/Desktop"
-            value={scanPath}
-            onChange={(e) => setScanPath(e.target.value)}
-          />
-          <Button onClick={handleSelectScanFolder}>选择</Button>
-          <Button
-            type="primary"
-            icon={<ScanOutlined />}
-            onClick={handleScan}
-            loading={loading}
-          >
-            扫描
-          </Button>
-        </Space.Compact>
-      </div>
+          {scanned && folders.length === 0 && (
+            <Empty
+              description={
+                <div>
+                  <p style={{ margin: '0 0 8px 0' }}>工作目录中暂无含工作记录的文件夹</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>
+                    请先在邮件列表或快速创建中生成工作文件夹后再尝试扫描
+                  </p>
+                </div>
+              }
+            />
+          )}
 
-      {departments.length === 0 && (
-        <Alert
-          type="warning"
-          message="请先在设置中添加部门"
-          description="归档功能需要配置部门及其归档路径"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      {loading && (
-        <div className="loading-container">
-          <Spin tip="扫描中..." />
+          {folders.length > 0 && (
+            <div className="folders-list">
+              {folders.map(folder => (
+                <div key={folder.path} id={`folder-${folder.path}`} style={{ scrollMarginTop: 80 }}>
+                  <FolderCard
+                    folder={folder}
+                    departments={departments}
+                    onArchive={handleArchive}
+                    onEditDept={handleEditDept}
+                    onViewContent={handleViewContent}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
 
-      {!loading && folders.length === 0 && (
-        <Empty
-          description="暂无数据，点击扫描按钮开始"
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-        />
-      )}
-
-      {!loading && folders.length > 0 && (
-        <>
-          <div className="folders-toolbar">
-            <Checkbox
-              checked={allSelected}
-              indeterminate={selectedCount > 0 && !allSelected}
-              onChange={(e) => handleSelectAll(e.target.checked)}
-            >
-              全选 ({selectedCount}/{folders.length})
-            </Checkbox>
+        {/* 右侧侧边栏：扫描按钮 + 时间滚动条 */}
+        <div className="archive-sidebar">
+          <Tooltip title="扫描工作文件夹" placement="left">
             <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleArchive}
-              loading={archiving}
-              disabled={selectedCount === 0 || departments.length === 0}
-            >
-              归档选中 ({selectedCount})
-            </Button>
-          </div>
+              shape="circle"
+              icon={<SearchOutlined />}
+              onClick={handleScan}
+              className="scan-btn"
+            />
+          </Tooltip>
+          {timelineData.length > 0 && (
+            <div className="archive-timeline">
+              <div className="timeline-track"></div>
+              {timelineData.map((item) => (
+                <Tooltip title={item.label} placement="left" key={item.key}>
+                  <div
+                    className={`timeline-dot ${activeMonthKey === item.key ? 'active' : ''}`}
+                    onClick={() => scrollToFolder(item.folderPath)}
+                  >
+                    <div className="timeline-dot-inner"></div>
+                  </div>
+                </Tooltip>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
-          <div className="folders-list">
-            {folders.map(folder => (
-              <FolderCard
-                key={folder.path}
-                folder={folder}
-                departments={departments}
-                selected={!!selectedFolders[folder.path]}
-                onSelect={handleSelectFolder}
-                selectedDeptId={folderDepts[folder.path]}
-                onDeptChange={handleDeptChange}
-              />
-            ))}
+      {/* 编辑部门弹窗 */}
+      <Modal
+        title="编辑归属部门"
+        open={editDeptVisible}
+        onOk={handleDeptSave}
+        onCancel={() => { setEditDeptVisible(false); setEditingFolder(null) }}
+        okText="保存"
+        cancelText="取消"
+        width={400}
+      >
+        {editingFolder && (
+          <div>
+            <p style={{ marginBottom: 12 }}>文件夹：<strong>{editingFolder.name}</strong></p>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="请选择部门"
+              value={editDeptId}
+              onChange={setEditDeptId}
+              options={departments.map(d => ({
+                label: d.name,
+                value: d.id,
+                desc: d.archivePath
+              }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{option.data.label}</span>
+                  <span style={{ color: '#999', fontSize: 12 }}>{option.data.desc}</span>
+                </div>
+              )}
+            />
           </div>
-        </>
-      )}
+        )}
+      </Modal>
+
+      {/* 查看/编辑内容弹窗 */}
+      <Modal
+        title={contentFolder ? `工作记录 - ${contentFolder.name}` : '工作记录'}
+        open={contentVisible}
+        onOk={handleContentSave}
+        onCancel={() => { setContentVisible(false); setContentFolder(null) }}
+        okText="保存"
+        cancelText="取消"
+        width={600}
+      >
+        {contentFolder && (
+          <div>
+            <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+              <Space>
+                {contentFolder.source && <Tag>{contentFolder.source}</Tag>}
+                {contentFolder.create_time && <span>创建：{contentFolder.create_time}</span>}
+              </Space>
+            </div>
+            <Input.TextArea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              rows={10}
+              placeholder="请记录工作过程..."
+              style={{ fontFamily: 'monospace' }}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

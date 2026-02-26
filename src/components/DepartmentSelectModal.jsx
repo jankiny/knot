@@ -31,7 +31,7 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
   }
 
   const handleSkip = () => {
-    // 跳过部门选择，不生成工作记录.md
+    // 暂不填写归属部门，仍会生成工作记录.md（部门留空）
     onConfirm(null)
   }
 
@@ -45,7 +45,7 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
           取消
         </Button>,
         <Button key="skip" onClick={handleSkip}>
-          跳过（不生成工作记录）
+          暂不填写
         </Button>,
         <Button key="confirm" type="primary" onClick={handleConfirm} disabled={departments.length === 0}>
           确定
@@ -96,7 +96,7 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
               )}
             />
             <p className="select-hint">
-              选择部门后，将在文件夹中生成"工作记录.md"，便于后续归档
+              选择部门后，将写入"工作记录.md"的归属部门字段，便于后续归档
             </p>
           </div>
         )}

@@ -3,6 +3,8 @@
 const SETTINGS_KEY = 'knot_settings'
 
 const DEFAULT_SETTINGS = {
+  // 窗口样式: 'integrated' (一体化) | 'classic' (经典)
+  windowStyle: 'integrated',
   folderPath: '~/Desktop',  // 默认桌面
   // 文件夹命名格式，支持变量：
   // {{YYYY}} - 年份，{{MM}} - 月份，{{DD}} - 日期
@@ -187,4 +189,27 @@ export function formatFolderName(format, mail) {
     .replace(/\{\{DD\}\}/g, day)
     .replace(/\{\{subject\}\}/g, safeSubject)
     .replace(/\{\{from\}\}/g, safeFrom)
+}
+
+// 生成标识 hash（SHA-256 前16位 hex）
+// 邮件来源：generateHash(subject + '|' + date + '|' + from)
+// 快速创建：generateHash(folderName)
+export async function generateHash(input) {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(input)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashHex.slice(0, 16)
+}
+
+// 为邮件生成标识 hash
+export async function generateMailHash(mail) {
+  const input = `${mail.subject || ''}|${mail.date || ''}|${mail.from || ''}`
+  return generateHash(input)
+}
+
+// 为快速创建生成标识 hash
+export async function generateFolderHash(folderName) {
+  return generateHash(folderName)
 }

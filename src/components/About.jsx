@@ -15,7 +15,7 @@ const getVersion = () => {
 const About = () => {
   return (
     <div className="about-container" style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
-      <Card bordered={false} style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+      <Card variant="borderless" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <Title level={2}>Knot 绳结</Title>
           <Paragraph type="secondary" style={{ fontSize: '16px' }}>
