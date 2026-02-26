@@ -1,0 +1,33 @@
+name: 🚀 Feature Request (功能请求)
+description: 为本项目提供一个功能建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您抽出宝贵时间填写此功能请求！
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: 您的功能请求是否与某个问题有关？请描述。
+      description: 清晰简洁地描述问题是什么。例如：当我 [...] 时，我总是感到不便...
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: 描述您想要的解决方案
+      description: 清晰简洁地描述您希望增加或优化的内容。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 描述您考虑过的替代方案
+      description: 清晰简洁地描述您考虑过的任何替代的解决方案或功能。
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 附加信息
+      description: 在这里添加关于这个功能请求的任何其他上下文或截图。

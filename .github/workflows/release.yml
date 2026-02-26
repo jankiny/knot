@@ -13,9 +13,18 @@ on:
       - main
       - master
       - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   NODE_VERSION: '18'
+  PNPM_VERSION: '9'
 
 jobs:
   # ============================================
@@ -24,10 +33,13 @@ jobs:
   prepare:
     name: Prepare Version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
       full_version: ${{ steps.version.outputs.full_version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      release_name: ${{ steps.version.outputs.release_name }}
 
     steps:
       - name: Checkout code
@@ -50,10 +62,14 @@ jobs:
             # dev 分支：1.0.23-alpha
             FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}-alpha"
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_tag=v${FULL_VERSION}" >> $GITHUB_OUTPUT
+            echo "release_name=v${FULL_VERSION}" >> $GITHUB_OUTPUT
           else
             # main/master 分支：1.0.50
             FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}"
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_tag=v${FULL_VERSION}" >> $GITHUB_OUTPUT
+            echo "release_name=v${FULL_VERSION}" >> $GITHUB_OUTPUT
           fi
 
           echo "分支: $BRANCH_NAME"
@@ -69,6 +85,7 @@ jobs:
     name: Build Windows
     runs-on: windows-latest
     needs: prepare
+    timeout-minutes: 40
 
     steps:
       - name: Checkout code
@@ -77,7 +94,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -137,9 +154,10 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
+          name: windows-build-${{ needs.prepare.outputs.full_version }}
           path: dist-electron/*.exe
-          retention-days: 7
+          retention-days: 3
+          if-no-files-found: error
 
   # ============================================
   # Linux 打包 (Ubuntu Runner)
@@ -148,6 +166,7 @@ jobs:
     name: Build Linux
     runs-on: ubuntu-latest
     needs: prepare
+    timeout-minutes: 40
 
     steps:
       - name: Install system dependencies
@@ -165,7 +184,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -220,11 +239,12 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-build
+          name: linux-build-${{ needs.prepare.outputs.full_version }}
           path: |
             dist-electron/*.deb
             dist-electron/*.AppImage
-          retention-days: 7
+          retention-days: 3
+          if-no-files-found: error
 
   # ============================================
   # 发布到 GitHub Release
@@ -235,6 +255,7 @@ jobs:
       contents: write
     needs: [prepare, build-windows, build-linux]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -245,12 +266,25 @@ jobs:
         with:
           path: ./release
 
+      - name: Generate Release Notes
+        uses: actions/github-script@v7
+        id: generate-notes
+        with:
+          script: |
+            const { data } = await github.rest.repos.generateReleaseNotes({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: "${{ needs.prepare.outputs.release_tag }}",
+              target_commitish: context.sha,
+            });
+            return data.body;
+
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: "./release/**/*"
-          tag: "v${{ needs.prepare.outputs.full_version }}"
-          name: "v${{ needs.prepare.outputs.full_version }}"
+          tag: "${{ needs.prepare.outputs.release_tag }}"
+          name: "${{ needs.prepare.outputs.release_name }}"
           body: |
             ## Knot 绳结 v${{ needs.prepare.outputs.full_version }}
 
@@ -258,7 +292,11 @@ jobs:
             **状态**: ${{ needs.prepare.outputs.is_prerelease == 'true' && 'Alpha 测试版' || '正式版' }}
 
             ### 更新内容
-            ${{ github.event.head_commit.message }}
+            ${{ steps.generate-notes.outputs.result }}
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+          allowUpdates: true
+          removeArtifacts: true
+          replacesArtifacts: true
+          makeLatest: ${{ needs.prepare.outputs.is_prerelease == 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}

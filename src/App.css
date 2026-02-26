@@ -4,13 +4,19 @@
 }
 
 /* 右侧主布局区域 */
-.app-layout > .ant-layout {
+.app-layout>.ant-layout {
   margin-left: 200px;
   transition: margin-left 0.2s;
+  overflow: visible !important;
+}
+
+/* 强制允许内容区溢出可见以支持 sticky 定位 */
+.ant-layout-content {
+  overflow: visible !important;
 }
 
 /* 侧边栏折叠时调整右侧边距 */
-.app-layout .ant-layout-sider-collapsed + .ant-layout {
+.app-layout .ant-layout-sider-collapsed+.ant-layout {
   margin-left: 80px;
 }
 
@@ -64,8 +70,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px 0 0 !important;
+  padding: 0 !important;
   border-bottom: 1px solid #f0f0f0;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
 }
 
 .header-left {
@@ -82,7 +91,7 @@
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  height: 100%;
 }
 
 .mock-badge {
@@ -91,6 +100,41 @@
   padding: 4px 12px;
   border-radius: 12px;
   font-size: 12px;
+  margin-right: 16px;
+}
+
+/* 一体化模式下的拖拽类名 */
+.integrated-drag {
+  -webkit-app-region: drag;
+}
+
+.integrated-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.window-controls {
+  display: flex;
+  height: 100%;
+}
+
+.window-btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 46px;
+  height: 100%;
+  color: #333;
+  transition: background-color 0.2s;
+  cursor: pointer;
+}
+
+.window-btn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.window-btn.close:hover {
+  background-color: #e81123;
+  color: white;
 }
 
 /* 菜单样式优化 */

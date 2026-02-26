@@ -75,103 +75,51 @@ export const folderApi = {
       }
       throw error
     }
+  },
+
+  // 检查 hash 是否已存在（查重）
+  checkHash: async (hash, scanPath, archivePaths = []) => {
+    const params = new URLSearchParams({ hash, scan_path: scanPath })
+    archivePaths.forEach(ap => {
+      if (ap) params.append('archive_path', ap)
+    })
+    const response = await axios.get(`${API_BASE}/folder/check-hash?${params.toString()}`)
+    return response.data
   }
 }
 
 export const archiveApi = {
   // 扫描工作文件夹
-  scan: async (scanPath) => {
-    try {
-      const response = await axios.get(`${API_BASE}/archive/scan`, {
-        params: { scan_path: scanPath }
-      })
-      return response.data
-    } catch (error) {
-      // Mock 模式下返回模拟数据
-      if (USE_MOCK && error.code === 'ERR_NETWORK') {
-        return {
-          success: true,
-          scan_path: scanPath,
-          count: 3,
-          folders: [
-            {
-              name: '2025.01.15_项目进度汇报',
-              path: `${scanPath}/2025.01.15_项目进度汇报`,
-              created: '2025-01-15T10:30:00',
-              modified: '2025-01-15T14:20:00',
-              has_work_record: true,
-              department: '科数部',
-              create_time: '2025-01-15 10:30'
-            },
-            {
-              name: '2025.01.16_系统维护通知',
-              path: `${scanPath}/2025.01.16_系统维护通知`,
-              created: '2025-01-16T09:00:00',
-              modified: '2025-01-16T11:30:00',
-              has_work_record: true,
-              department: '技术部',
-              create_time: '2025-01-16 09:00'
-            },
-            {
-              name: '2025.01.17_会议纪要',
-              path: `${scanPath}/2025.01.17_会议纪要`,
-              created: '2025-01-17T15:00:00',
-              modified: '2025-01-17T16:45:00',
-              has_work_record: false,
-              department: null,
-              create_time: null
-            }
-          ]
-        }
-      }
-      throw error
-    }
+  scan: async (scanPath, recursive = false) => {
+    const params = { scan_path: scanPath }
+    if (recursive) params.recursive = 'true'
+    const response = await axios.get(`${API_BASE}/archive/scan`, { params })
+    return response.data
   },
 
   // 移动单个文件夹到归档目录
   move: async (folderPath, archivePath) => {
-    try {
-      const response = await axios.post(`${API_BASE}/archive/move`, {
-        folder_path: folderPath,
-        archive_path: archivePath
-      })
-      return response.data
-    } catch (error) {
-      if (USE_MOCK && error.code === 'ERR_NETWORK') {
-        const folderName = folderPath.split('/').pop()
-        const year = folderName.substring(0, 4)
-        return {
-          success: true,
-          source: folderPath,
-          destination: `${archivePath}/${year}/${folderName}`,
-          message: `已归档到: ${archivePath}/${year}/${folderName} (模拟)`
-        }
-      }
-      throw error
-    }
+    const response = await axios.post(`${API_BASE}/archive/move`, {
+      folder_path: folderPath,
+      archive_path: archivePath
+    })
+    return response.data
   },
 
   // 批量归档
   batchMove: async (items) => {
-    try {
-      const response = await axios.post(`${API_BASE}/archive/batch-move`, { items })
-      return response.data
-    } catch (error) {
-      if (USE_MOCK && error.code === 'ERR_NETWORK') {
-        return {
-          success: true,
-          total: items.length,
-          success_count: items.length,
-          fail_count: 0,
-          results: items.map(item => ({
-            source: item.folder_path,
-            destination: `${item.archive_path}/2025/${item.folder_path.split('/').pop()}`,
-            success: true,
-            message: '归档成功 (模拟)'
-          }))
-        }
-      }
-      throw error
-    }
+    const response = await axios.post(`${API_BASE}/archive/batch-move`, { items })
+    return response.data
+  },
+
+  // 更新工作记录
+  updateWorkRecord: async (folderPath, department, content) => {
+    const response = await axios.post(`${API_BASE}/archive/update-work-record`, {
+      folder_path: folderPath,
+      department: department || '',
+      content: content || ''
+    })
+    return response.data
   }
 }
+

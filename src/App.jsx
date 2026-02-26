@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { ConfigProvider, Layout, Menu, Button, theme } from 'antd'
 import {
   MailOutlined,
@@ -7,7 +7,11 @@ import {
   SettingOutlined,
   MenuUnfoldOutlined,
   MenuFoldOutlined,
-  PlusSquareOutlined
+  PlusSquareOutlined,
+  MinusOutlined,
+  BorderOutlined,
+  BlockOutlined,
+  CloseOutlined
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import MailList from './components/MailList'
@@ -15,6 +19,7 @@ import AutoArchive from './components/AutoArchive'
 import Settings from './components/Settings'
 import About from './components/About'
 import QuickCreate from './components/QuickCreate'
+import { getSettings } from './services/settings'
 import { USE_MOCK } from './services/api'
 import './App.css'
 
@@ -23,16 +28,55 @@ const { Header, Sider, Content } = Layout
 function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [activeKey, setActiveKey] = useState('mail')
+  const [isMaximized, setIsMaximized] = useState(false)
+  const [settings, setSettings] = useState(getSettings())
+
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken()
+
+  const isIntegratedStyle = settings.windowStyle === 'integrated'
 
   // 监听打开设置的事件
   useEffect(() => {
     const handleOpenSettings = () => setActiveKey('settings')
     window.addEventListener('openSettings', handleOpenSettings)
-    return () => window.removeEventListener('openSettings', handleOpenSettings)
+
+    // 我们也可能需要监听设置的更改以便实时更新 windowStyle，
+    // 这里简单处理为每次重新渲染或切回前台时重新获取
+    const handleFocus = () => setSettings(getSettings())
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      window.removeEventListener('openSettings', handleOpenSettings)
+      window.removeEventListener('focus', handleFocus)
+    }
   }, [])
+
+  // 监听窗口最大化状态
+  useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.isWindowMaximized().then(status => setIsMaximized(status))
+      window.electronAPI.onMaximizedStateChange((isMax) => {
+        setIsMaximized(isMax)
+      })
+      return () => {
+        window.electronAPI.removeMaximizedStateListener()
+      }
+    }
+  }, [])
+
+  const handleMinimize = () => {
+    if (window.electronAPI) window.electronAPI.minimizeWindow()
+  }
+
+  const handleMaximize = () => {
+    if (window.electronAPI) window.electronAPI.maximizeWindow()
+  }
+
+  const handleClose = () => {
+    if (window.electronAPI) window.electronAPI.closeWindow()
+  }
 
   const menuItems = [
     {
@@ -117,8 +161,8 @@ function App() {
           </div>
         </Sider>
         <Layout>
-          <Header style={{ padding: 0, background: colorBgContainer }} className="app-header">
-            <div className="header-left">
+          <Header style={{ padding: 0, background: colorBgContainer }} className={`app-header ${isIntegratedStyle ? 'integrated-drag' : ''}`}>
+            <div className={`header-left ${isIntegratedStyle ? 'integrated-no-drag' : ''}`}>
               <Button
                 type="text"
                 icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
@@ -129,10 +173,28 @@ function App() {
                   height: 64,
                 }}
               />
-              <h2 className="page-title">{getHeaderTitle()}</h2>
+              <h2 className={`page-title ${isIntegratedStyle ? 'integrated-drag' : ''}`}>{getHeaderTitle()}</h2>
             </div>
-            <div className="header-right">
-              {USE_MOCK && <span className="mock-badge">Mock 模式</span>}
+            <div className={`header-right ${isIntegratedStyle ? 'integrated-no-drag' : ''}`}>
+              {USE_MOCK && <span className={`mock-badge ${isIntegratedStyle ? 'integrated-no-drag' : ''}`}>Mock 模式</span>}
+
+              {isIntegratedStyle && (
+                <div className="window-controls integrated-no-drag">
+                  <div className="window-btn" onClick={handleMinimize} title="最小化">
+                    <MinusOutlined style={{ fontSize: '12px' }} />
+                  </div>
+                  <div className="window-btn" onClick={handleMaximize} title={isMaximized ? "向下还原" : "最大化"}>
+                    {isMaximized ? (
+                      <BlockOutlined style={{ fontSize: '11px' }} />
+                    ) : (
+                      <BorderOutlined style={{ fontSize: '11px' }} />
+                    )}
+                  </div>
+                  <div className="window-btn close" onClick={handleClose} title="关闭">
+                    <CloseOutlined style={{ fontSize: '12px' }} />
+                  </div>
+                </div>
+              )}
             </div>
           </Header>
           <Content
@@ -141,15 +203,14 @@ function App() {
               padding: 24,
               minHeight: 280,
               background: colorBgContainer,
-              borderRadius: borderRadiusLG,
-              overflow: 'auto'
+              borderRadius: borderRadiusLG
             }}
           >
             {renderContent()}
           </Content>
         </Layout>
       </Layout>
-    </ConfigProvider>
+    </ConfigProvider >
   )
 }
 

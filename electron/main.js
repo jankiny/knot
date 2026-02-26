@@ -1,6 +1,12 @@
-const { app, BrowserWindow, shell, Menu, ipcMain, dialog, safeStorage } = require('electron')
+const { app, BrowserWindow, shell, Menu, ipcMain, dialog, safeStorage, session } = require('electron')
+const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+
+// 禁用开发时的 CSP 警告
+if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+  process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true'
+}
 
 let mainWindow
 let backendProcess
@@ -9,11 +15,31 @@ function createWindow() {
   // 隐藏菜单栏
   Menu.setApplicationMenu(null)
 
+  // 读取用户设置，判断窗口样式
+  const settingsPath = path.join(app.getPath('userData'), 'knot-settings.json')
+  let windowStyle = 'integrated'
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const settingsData = fs.readFileSync(settingsPath, 'utf8')
+      const parsed = JSON.parse(settingsData)
+      if (parsed.windowStyle) {
+        windowStyle = parsed.windowStyle
+      }
+    }
+  } catch (err) {
+    console.error('读取窗口设置失败:', err)
+  }
+
+  const isIntegrated = windowStyle === 'integrated'
+  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: isDev ? 1200 : 900,
+    height: 600,
     minWidth: 900,
     minHeight: 600,
+    frame: !isIntegrated, // 一体化时隐藏边框，经典时显示边框
+    titleBarStyle: isIntegrated ? 'hidden' : 'default', // 在macOS上的表现
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -27,6 +53,16 @@ function createWindow() {
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
+
+    // 加载 React DevTools
+    try {
+      const { default: installExtension, REACT_DEVELOPER_TOOLS } = require('electron-devtools-installer')
+      installExtension(REACT_DEVELOPER_TOOLS)
+        .then((name) => console.log(`Installed DevTools: ${name}`))
+        .catch((err) => console.log('DevTools Installation Error:', err))
+    } catch (e) {
+      console.log('electron-devtools-installer 未安装，跳过加载 React DevTools')
+    }
   } else {
     // 生产模式加载打包后的文件
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
@@ -180,6 +216,62 @@ if (!gotTheLock) {
 
     ipcMain.on('get-app-version', (event) => {
       event.returnValue = app.getVersion()
+    })
+
+    // 窗口控制事件
+    ipcMain.handle('window-minimize', () => {
+      if (mainWindow) mainWindow.minimize()
+    })
+
+    ipcMain.handle('window-maximize', () => {
+      if (mainWindow) {
+        if (mainWindow.isMaximized()) {
+          mainWindow.unmaximize()
+        } else {
+          mainWindow.maximize()
+        }
+      }
+    })
+
+    ipcMain.handle('window-close', () => {
+      if (mainWindow) mainWindow.close()
+    })
+
+    ipcMain.handle('window-is-maximized', () => {
+      return mainWindow ? mainWindow.isMaximized() : false
+    })
+
+    // 监听窗口最大化/还原事件，通知渲染进程
+    if (mainWindow) {
+      mainWindow.on('maximize', () => {
+        mainWindow.webContents.send('window-maximized-state', true)
+      })
+      mainWindow.on('unmaximize', () => {
+        mainWindow.webContents.send('window-maximized-state', false)
+      })
+    }
+
+    // 设置项的 IPC 处理（简单存储到 userData 下）
+    ipcMain.handle('save-setting', (event, key, value) => {
+      try {
+        const settingsPath = path.join(app.getPath('userData'), 'knot-settings.json')
+        let settings = {}
+        if (fs.existsSync(settingsPath)) {
+          settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+        }
+        settings[key] = value
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+        return true
+      } catch (err) {
+        console.error('保存设置失败:', err)
+        return false
+      }
+    })
+
+    // 重启应用
+    ipcMain.handle('restart-app', () => {
+      app.relaunch()
+      app.quit()
     })
 
     startBackend()

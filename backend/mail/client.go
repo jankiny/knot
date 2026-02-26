@@ -8,6 +8,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -164,6 +165,14 @@ func (c *MailClient) FetchMailList(limit int, days int) ([]MailItem, error) {
 			HasAttachments:  false,
 		})
 	}
+
+	// Sort by date descending (newest first)
+	// IMAP Fetch via channel does not guarantee order, so we must sort explicitly
+	sort.Slice(results, func(i, j int) bool {
+		ti, _ := time.Parse(time.RFC1123Z, results[i].Date)
+		tj, _ := time.Parse(time.RFC1123Z, results[j].Date)
+		return ti.After(tj)
+	})
 
 	return results, nil
 }

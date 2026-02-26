@@ -9,16 +9,27 @@ name: Build Check
 # - 任何 PR（拉取请求）
 on:
   push:
-    branches: ['*']
+    branches: ['**']
   pull_request:
-    branches: ['*']
+    branches: ['**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+  PNPM_VERSION: '9'
 
 jobs:
-  # PR 轻量预检：快速反馈依赖与后端单测状态
-  smoke-check:
-    name: Smoke Check
+  # 后端检查（Go 测试与编译）
+  check-backend:
+    name: Check Backend
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -27,12 +38,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -50,11 +61,16 @@ jobs:
           cd backend
           go test ./...
 
+      - name: Check backend build
+        run: |
+          cd backend
+          go build -buildvcs=false ./...
+
   # 前端构建检查
   build-frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    timeout-minutes: 15
 
     steps:
       # 第一步：检出代码
@@ -65,14 +81,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: ${{ env.PNPM_VERSION }}
 
       # 第二步：设置 Node.js 环境
       # actions/setup-node 用于安装指定版本的 Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
 
@@ -87,29 +103,3 @@ jobs:
       # 第五步：检查 Electron 主进程语法
       - name: Check Electron main process
         run: node --check electron/main.js
-
-  # 后端检查（Go 测试与编译）
-  check-backend:
-    name: Check Backend
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'backend/go.mod'
-          cache-dependency-path: 'backend/go.sum'
-
-      - name: Run backend tests
-        run: |
-          cd backend
-          go test ./...
-
-      - name: Check backend build
-        run: |
-          cd backend
-          go build -buildvcs=false ./...
