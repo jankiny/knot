@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -811,7 +812,20 @@ func countFilesRecursively(folderPath string) int {
 	return count
 }
 
+func normalizeScanPath(path string) string {
+	return filepath.Clean(path)
+}
+
+func normalizePathKey(path string) string {
+	normalized := normalizeScanPath(path)
+	if runtime.GOOS == "windows" {
+		normalized = strings.ToLower(normalized)
+	}
+	return normalized
+}
+
 func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
+	folderPath = normalizeScanPath(folderPath)
 	wrPath := filepath.Join(folderPath, workRecordFileName)
 	if _, err := os.Stat(wrPath); os.IsNotExist(err) {
 		return nil, false
@@ -834,7 +848,7 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 
 	return map[string]interface{}{
 		"name":            name,
-		"path":            folderPath,
+		"path":            normalizeScanPath(folderPath),
 		"modified":        modified,
 		"has_work_record": true,
 		"department":      info.Department,
@@ -854,17 +868,19 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interface{}, error) {
 	var folders []map[string]interface{}
 	added := map[string]bool{}
+	scanPath = normalizeScanPath(scanPath)
 
 	appendFolder := func(folderPath string) {
-		cleanPath := filepath.Clean(folderPath)
-		if added[cleanPath] {
+		cleanPath := normalizeScanPath(folderPath)
+		key := normalizePathKey(cleanPath)
+		if added[key] {
 			return
 		}
 		folder, ok := readScannedFolder(cleanPath, filepath.Base(cleanPath))
 		if !ok {
 			return
 		}
-		added[cleanPath] = true
+		added[key] = true
 		folders = append(folders, folder)
 	}
 
@@ -873,7 +889,7 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 			if err != nil || !d.IsDir() {
 				return nil
 			}
-			if filepath.Clean(path) == filepath.Clean(scanPath) {
+			if normalizePathKey(path) == normalizePathKey(scanPath) {
 				return nil
 			}
 			if _, err := os.Stat(filepath.Join(path, workRecordFileName)); err == nil {
@@ -922,7 +938,7 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 	if scanPath == "" {
 		scanPath = "~/Desktop"
 	}
-	scanPath = getBaseFolder(scanPath)
+	scanPath = normalizeScanPath(getBaseFolder(scanPath))
 	recursive := r.URL.Query().Get("recursive") == "true"
 
 	folders, err := collectScannedFolders(scanPath, recursive)
@@ -1052,6 +1068,29 @@ type UpdateWorkRecordRequest struct {
 	FolderPath string `json:"folder_path"`
 	Department string `json:"department"`
 	Content    string `json:"content"`
+	Title      string `json:"title"`
+}
+
+func updateMarkdownTitle(body string, title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return body
+	}
+
+	normalizedBody := strings.ReplaceAll(body, "\r\n", "\n")
+	lines := strings.Split(normalizedBody, "\n")
+	for i := range lines {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "# ") {
+			lines[i] = "# " + title
+			return strings.Join(lines, "\n")
+		}
+	}
+
+	trimmed := strings.TrimSpace(normalizedBody)
+	if trimmed == "" {
+		return "# " + title + "\n"
+	}
+	return "# " + title + "\n\n" + trimmed + "\n"
 }
 
 func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
@@ -1081,6 +1120,9 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 	body := parsed.Body
 	if strings.TrimSpace(req.Content) != "" {
 		body = strings.TrimSpace(req.Content) + "\n"
+	}
+	if strings.TrimSpace(req.Title) != "" {
+		body = updateMarkdownTitle(body, req.Title)
 	}
 
 	if err := writeWorkRecordFile(wrPath, front, body); err != nil {

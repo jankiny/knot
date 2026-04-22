@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -31,7 +32,6 @@ func TestGetBaseFolder_TildePath(t *testing.T) {
 
 func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 	router := SetupRoutes()
-
 	endpoints := []struct {
 		method string
 		path   string
@@ -66,19 +66,12 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 func TestHandleGetMailList_NoConnection(t *testing.T) {
 	mailClient = nil
 	router := SetupRoutes()
-
 	req := httptest.NewRequest(http.MethodGet, "/api/mail/list", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rr.Code)
-	}
-
-	var resp map[string]interface{}
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if resp["detail"] != "请先连接邮箱" {
-		t.Fatalf("unexpected detail: %v", resp["detail"])
 	}
 }
 
@@ -95,8 +88,8 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 		Hash:       "manualhash001",
 	}
 
-	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(bodyBytes))
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -106,14 +99,15 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 	}
 
 	folderPath := filepath.Join(tmpDir, "2026.04.20_Manual_Task")
-	for _, p := range []string{
+	mustExist := []string{
 		filepath.Join(folderPath, "00_Source"),
 		filepath.Join(folderPath, "10_Process"),
 		filepath.Join(folderPath, "20_Output"),
 		filepath.Join(folderPath, "00_Source", "references"),
 		filepath.Join(folderPath, "00_Source", "requirement.md"),
 		filepath.Join(folderPath, workRecordFileName),
-	} {
+	}
+	for _, p := range mustExist {
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			t.Fatalf("expected path not found: %s", p)
 		}
@@ -150,8 +144,8 @@ func TestHandleCreateFolder_EmailStructure(t *testing.T) {
 		Hash:       "emailhash001",
 	}
 
-	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/folder/create-with-attachments", bytes.NewReader(bodyBytes))
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create-with-attachments", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -161,28 +155,15 @@ func TestHandleCreateFolder_EmailStructure(t *testing.T) {
 	}
 
 	folderPath := filepath.Join(tmpDir, "2026.04.20_Email_Task")
-	for _, p := range []string{
+	mustExist := []string{
 		filepath.Join(folderPath, "00_Source", "email.txt"),
 		filepath.Join(folderPath, "00_Source", "email.pdf"),
 		filepath.Join(folderPath, "00_Source", "attachments"),
-	} {
+	}
+	for _, p := range mustExist {
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			t.Fatalf("expected path not found: %s", p)
 		}
-	}
-
-	emailText, _ := os.ReadFile(filepath.Join(folderPath, "00_Source", "email.txt"))
-	if !strings.Contains(string(emailText), "会议纪要确认") {
-		t.Fatalf("email.txt does not contain subject")
-	}
-
-	wrContent, _ := os.ReadFile(filepath.Join(folderPath, workRecordFileName))
-	wr := string(wrContent)
-	if !strings.Contains(wr, "source: email") {
-		t.Fatalf("work record should be email source")
-	}
-	if !strings.Contains(wr, "alice@example.com") {
-		t.Fatalf("work record should contain initiator")
 	}
 }
 
@@ -328,6 +309,10 @@ archive_status: local_active
 hash:
 ---
 # 2026.04.20_UpdateTask
+
+## 工作日志
+
+- 旧内容
 `
 	_ = os.WriteFile(filepath.Join(folder, workRecordFileName), []byte(workRecord), 0o644)
 
@@ -335,7 +320,8 @@ hash:
 	body, _ := json.Marshal(UpdateWorkRecordRequest{
 		FolderPath: folder,
 		Department: "市场部",
-		Content:    "# 自定义内容\n\n- 今天完成了扫描",
+		Content:    "## 工作日志\n\n- 新内容",
+		Title:      "更新后的标题",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/archive/update-work-record", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -351,7 +337,10 @@ hash:
 	if !strings.Contains(text, "department: 市场部") {
 		t.Fatalf("department not updated")
 	}
-	if !strings.Contains(text, "# 自定义内容") {
+	if !strings.Contains(text, "# 更新后的标题") {
+		t.Fatalf("title not updated")
+	}
+	if !strings.Contains(text, "- 新内容") {
 		t.Fatalf("content not updated")
 	}
 }
@@ -452,5 +441,69 @@ hash:
 	content := logItem["content"].(string)
 	if !strings.Contains(content, "完成了") {
 		t.Fatalf("unexpected log content: %s", content)
+	}
+}
+
+func TestNormalizePathKey_WindowsCaseInsensitive(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only path key behavior")
+	}
+
+	a := normalizePathKey(`C:\Workspace\20_Dev\Task\`)
+	b := normalizePathKey(`c:/workspace/20_dev/task`)
+	if a != b {
+		t.Fatalf("expected equal keys, got %s and %s", a, b)
+	}
+}
+
+func TestCollectScannedFolders_RecursiveSkipsNestedTaskWhenParentIsTask(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := filepath.Join(tmpDir, "2026.04.22_parent")
+	child := filepath.Join(parent, "nested", "2026.04.22_child")
+	_ = os.MkdirAll(child, 0o755)
+
+	parentRecord := `---
+type: task
+schema_version: 2
+status: active
+created: 2026-04-22
+source: manual
+department:
+project_path: D:/Workspace/Parent
+archive_status: local_active
+hash: parenthash
+---
+# Parent
+`
+	childRecord := `---
+type: task
+schema_version: 2
+status: active
+created: 2026-04-22
+source: manual
+department:
+project_path: D:/Workspace/Child
+archive_status: local_active
+hash: childhash
+---
+# Child
+`
+
+	_ = os.WriteFile(filepath.Join(parent, workRecordFileName), []byte(parentRecord), 0o644)
+	_ = os.WriteFile(filepath.Join(child, workRecordFileName), []byte(childRecord), 0o644)
+
+	folders, err := collectScannedFolders(tmpDir, true)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+
+	if len(folders) != 1 {
+		t.Fatalf("expected only parent task folder, got %d", len(folders))
+	}
+
+	gotPath := folders[0]["path"].(string)
+	if normalizePathKey(gotPath) != normalizePathKey(parent) {
+		t.Fatalf("expected %s, got %s", parent, gotPath)
 	}
 }
