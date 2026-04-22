@@ -3,7 +3,8 @@ import { Button, Card, Checkbox, DatePicker, Empty, Input, List, message, Space,
 import { CopyOutlined, FolderOpenOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { archiveApi, reportApi } from '../services/api'
-import { getSettings, getDepartments } from '../services/settings'
+import { getDepartments, getSettings } from '../services/settings'
+import { normalizePathKey, optimizeRecursiveScanDirectories } from '../services/path'
 import './DailyReport.css'
 
 const { Text } = Typography
@@ -35,9 +36,11 @@ function buildDefaultDirectories() {
 
   const dedup = new Map()
   list.forEach((item) => {
-    if (!item.path || dedup.has(item.path)) return
-    dedup.set(item.path, item)
+    const key = normalizePathKey(item.path)
+    if (!key || dedup.has(key)) return
+    dedup.set(key, item)
   })
+
   return Array.from(dedup.values())
 }
 
@@ -56,7 +59,7 @@ function DailyReport() {
     const keyword = searchText.trim().toLowerCase()
     if (!keyword) return folders
     return folders.filter((folder) => {
-      const text = `${folder.name || ''} ${folder.path || ''} ${folder.department || ''}`.toLowerCase()
+      const text = `${folder.title || ''} ${folder.name || ''} ${folder.path || ''} ${folder.department || ''}`.toLowerCase()
       return text.includes(keyword)
     })
   }, [folders, searchText])
@@ -79,10 +82,12 @@ function DailyReport() {
       message.info('请在 Electron 客户端中选择目录')
       return
     }
+
     const path = await window.electronAPI.selectFolder()
     if (!path) return
 
-    const exists = directories.some((item) => item.path === path)
+    const key = normalizePathKey(path)
+    const exists = directories.some((item) => normalizePathKey(item.path) === key)
     if (exists) {
       message.info('该目录已存在')
       return
@@ -101,8 +106,8 @@ function DailyReport() {
   }
 
   const handleScan = async () => {
-    const selectedDirs = directories.filter((item) => item.checked && item.path)
-    if (selectedDirs.length === 0) {
+    const scanTargets = optimizeRecursiveScanDirectories(directories)
+    if (scanTargets.length === 0) {
       message.warning('请至少选择一个扫描目录')
       return
     }
@@ -110,7 +115,7 @@ function DailyReport() {
     setScanLoading(true)
     try {
       const results = await Promise.all(
-        selectedDirs.map(async (item) => {
+        scanTargets.map(async (item) => {
           try {
             const resp = await archiveApi.scan(item.path, true)
             return { ok: true, item, resp }
@@ -130,16 +135,21 @@ function DailyReport() {
         }
 
         ;(result.resp.folders || []).forEach((folder) => {
-          if (!folder?.path) return
-          const existing = folderMap.get(folder.path)
+          const pathKey = normalizePathKey(folder?.path)
+          if (!pathKey) return
+
+          const existing = folderMap.get(pathKey)
           if (!existing) {
-            folderMap.set(folder.path, {
+            folderMap.set(pathKey, {
               ...folder,
               fromDirectories: [result.item.label]
             })
             return
           }
-          existing.fromDirectories = Array.from(new Set([...existing.fromDirectories, result.item.label]))
+
+          existing.fromDirectories = Array.from(
+            new Set([...(existing.fromDirectories || []), result.item.label])
+          )
         })
       })
 
@@ -190,16 +200,15 @@ function DailyReport() {
 
       if (aiConfig.enabled) {
         if (!aiConfig.api_url || !aiConfig.model || !settings.aiApiKeyEncrypted) {
-          message.warning('AI 日报已启用，但 AI 地址/模型/API Key 未完整配置')
-          setGenerateLoading(false)
+          message.warning('AI 日报已启用，但 AI 地址、模型或 API Key 未完整配置')
           return
         }
+
         if (window.electronAPI?.decryptPassword) {
           aiConfig.api_key = await window.electronAPI.decryptPassword(settings.aiApiKeyEncrypted) || ''
         }
         if (!aiConfig.api_key) {
           message.warning('AI Key 解密失败，请重新保存 AI Key')
-          setGenerateLoading(false)
           return
         }
       }
@@ -236,6 +245,7 @@ function DailyReport() {
       message.info('暂无可复制内容')
       return
     }
+
     try {
       await navigator.clipboard.writeText(markdown)
       message.success('已复制 Markdown')
@@ -246,7 +256,7 @@ function DailyReport() {
 
   return (
     <div className="daily-report">
-      <Card title="日报目录选择" className="daily-card">
+      <Card title="日报生成目录选择" className="daily-card">
         <div className="directory-actions">
           <Button onClick={addDirectory} icon={<FolderOpenOutlined />}>添加目录</Button>
           <Button type="primary" onClick={handleScan} icon={<ReloadOutlined />} loading={scanLoading}>扫描任务</Button>
@@ -310,7 +320,7 @@ function DailyReport() {
         )}
       </Card>
 
-      <Card title="生成日报" className="daily-card">
+      <Card title="日报生成" className="daily-card">
         <div className="generate-bar">
           <Space>
             <span>日报日期</span>
