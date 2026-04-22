@@ -1,0 +1,136 @@
+.daily-report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.daily-card .ant-card-body {
+  padding-top: 14px;
+}
+
+.directory-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.directory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.directory-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.directory-label {
+  font-weight: 500;
+}
+
+.directory-path {
+  font-family: monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.task-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.task-title {
+  font-weight: 500;
+}
+
+.task-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.generate-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.logs-preview {
+  margin-top: 14px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 10px;
+}
+
+.log-title {
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-content {
+  color: #666;
+  line-height: 1.5;
+}
+
+.markdown-block {
+  margin-top: 14px;
+}
+
+.markdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .task-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .task-item {
+    grid-template-columns: 1fr;
+  }
+
+  .task-meta {
+    justify-content: flex-start;
+  }
+
+  .directory-item {
+    grid-template-columns: 1fr;
+  }
+
+  .log-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -35,7 +35,12 @@ const DEFAULT_SETTINGS = {
   // 默认部门ID
   defaultDepartmentId: null,
   // 归档扫描目录（扫描工作文件夹的位置）
-  scanPath: '~/Desktop'
+  scanPath: '~/Desktop',
+  // AI 日报设置
+  aiApiUrl: '',
+  aiModel: '',
+  aiApiKeyEncrypted: null,
+  enableAiDailyReport: false
 }
 
 export function getSettings() {

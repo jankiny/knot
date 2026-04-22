@@ -31,6 +31,7 @@ function Settings() {
   const [connected, setConnected] = useState(false)
   const [settings, setSettings] = useState(getSettings())
   const [formatPreset, setFormatPreset] = useState('preset')
+  const [aiApiKey, setAiApiKey] = useState('')
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -50,6 +51,16 @@ function Settings() {
           console.error('解密密码失败:', e)
         }
       }
+
+      let decryptedAiKey = ''
+      if (s.aiApiKeyEncrypted && window.electronAPI?.decryptPassword) {
+        try {
+          decryptedAiKey = await window.electronAPI.decryptPassword(s.aiApiKeyEncrypted) || ''
+        } catch (e) {
+          console.error('解密 AI Key 失败:', e)
+        }
+      }
+      setAiApiKey(decryptedAiKey)
 
       // 加载邮件服务器配置到表单
       form.setFieldsValue({
@@ -122,6 +133,31 @@ function Settings() {
     if (value !== 'custom') {
       updateSetting('folderNameFormat', value)
     }
+  }
+
+  const handleAiApiKeyBlur = async () => {
+    const key = aiApiKey.trim()
+    if (!key) {
+      updateSetting('aiApiKeyEncrypted', null)
+      return
+    }
+
+    let encryptedKey = null
+    if (window.electronAPI?.encryptPassword) {
+      try {
+        encryptedKey = await window.electronAPI.encryptPassword(key)
+      } catch (e) {
+        console.error('加密 AI Key 失败:', e)
+      }
+    }
+
+    if (!encryptedKey) {
+      message.error('AI Key 保存失败')
+      return
+    }
+
+    updateSetting('aiApiKeyEncrypted', encryptedKey)
+    message.success('AI Key 已加密保存')
   }
 
   const handleWindowStyleChange = async (e) => {
@@ -460,6 +496,54 @@ function Settings() {
 
         <Divider />
 
+        {/* AI 设置 */}
+        <div id="ai-settings" className="settings-block">
+          <h2>AI 设置</h2>
+          <div className="settings-section">
+            <div className="section-header">
+              <h3>日报生成</h3>
+            </div>
+
+            <div className="setting-item inline">
+              <label>启用 AI 日报</label>
+              <Switch
+                checked={!!settings.enableAiDailyReport}
+                onChange={(checked) => updateSetting('enableAiDailyReport', checked)}
+              />
+            </div>
+
+            <div className="setting-item">
+              <label>API 地址</label>
+              <Input
+                value={settings.aiApiUrl || ''}
+                onChange={(e) => updateSetting('aiApiUrl', e.target.value)}
+                placeholder="例如: https://api.openai.com/v1"
+              />
+            </div>
+
+            <div className="setting-item">
+              <label>模型名称</label>
+              <Input
+                value={settings.aiModel || ''}
+                onChange={(e) => updateSetting('aiModel', e.target.value)}
+                placeholder="例如: gpt-4.1-mini"
+              />
+            </div>
+
+            <div className="setting-item">
+              <label>API Key（加密存储）</label>
+              <Input.Password
+                value={aiApiKey}
+                onChange={(e) => setAiApiKey(e.target.value)}
+                onBlur={handleAiApiKeyBlur}
+                placeholder="输入后失焦自动加密保存"
+              />
+            </div>
+          </div>
+        </div>
+
+        <Divider />
+
         {/* 归档设置 */}
         <div id="archive-settings" className="settings-block">
           <h2>归档设置</h2>
@@ -494,6 +578,11 @@ function Settings() {
               key: 'folder-settings',
               href: '#folder-settings',
               title: '文件夹设置',
+            },
+            {
+              key: 'ai-settings',
+              href: '#ai-settings',
+              title: 'AI 设置',
             },
             {
               key: 'archive-settings',

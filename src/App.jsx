@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { ConfigProvider, Layout, Menu, Button, theme } from 'antd'
 import {
   MailOutlined,
   FolderOpenOutlined,
+  FileTextOutlined,
   InfoCircleOutlined,
   SettingOutlined,
   MenuUnfoldOutlined,
@@ -19,6 +20,7 @@ import AutoArchive from './components/AutoArchive'
 import Settings from './components/Settings'
 import About from './components/About'
 import QuickCreate from './components/QuickCreate'
+import DailyReport from './components/DailyReport'
 import { getSettings } from './services/settings'
 import { USE_MOCK } from './services/api'
 import './App.css'
@@ -94,6 +96,11 @@ function App() {
       icon: <FolderOpenOutlined />,
       label: '自动归档',
     },
+    {
+      key: 'daily',
+      icon: <FileTextOutlined />,
+      label: '日报',
+    },
   ]
 
   const renderContent = () => {
@@ -104,6 +111,8 @@ function App() {
         return <QuickCreate />
       case 'archive':
         return <AutoArchive />
+      case 'daily':
+        return <DailyReport />
       case 'about':
         return <About />
       case 'settings':
@@ -118,6 +127,7 @@ function App() {
       case 'mail': return '邮件列表'
       case 'quick': return '快速创建'
       case 'archive': return '自动归档'
+      case 'daily': return '日报'
       case 'about': return '关于'
       case 'settings': return '设置'
       default: return 'Knot 绳结'
