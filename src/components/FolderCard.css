@@ -8,56 +8,80 @@
 
 .folder-card-content {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
-.folder-info {
-  flex: 1;
+.folder-row-top {
+  align-items: flex-start;
+}
+
+.folder-title-wrap {
   min-width: 0;
-}
-
-.folder-name {
-  font-weight: 500;
-  font-size: 14px;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  cursor: pointer;
 }
 
-.folder-name .folder-icon {
+.folder-icon {
   color: #faad14;
   font-size: 16px;
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 
-.folder-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  font-size: 12px;
-  color: #999;
-}
-
-.folder-meta .meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.folder-content-preview {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #666;
-  line-height: 1.5;
-  padding: 4px 8px;
-  background: #fafafa;
-  border-radius: 4px;
-  border-left: 2px solid #d9d9d9;
+.folder-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #262626;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .folder-actions {
   flex-shrink: 0;
+}
+
+.folder-row-meta {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.folder-department-tag {
+  cursor: pointer;
+}
+
+.folder-content-preview {
+  width: 100%;
+  font-size: 12px;
+  color: #595959;
+  line-height: 1.6;
+  padding: 8px 10px;
+  background: #fafafa;
+  border-radius: 4px;
+  border-left: 2px solid #d9d9d9;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .folder-row-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .folder-actions {
+    align-self: flex-end;
+  }
 }

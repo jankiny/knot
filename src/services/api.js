@@ -113,12 +113,22 @@ export const archiveApi = {
   },
 
   // 更新工作记录
-  updateWorkRecord: async (folderPath, department, content) => {
-    const response = await axios.post(`${API_BASE}/archive/update-work-record`, {
-      folder_path: folderPath,
-      department: department || '',
-      content: content || ''
-    })
+  updateWorkRecord: async (folderPath, departmentOrPayload = '', content = '', title = '') => {
+    const payload = typeof departmentOrPayload === 'object' && departmentOrPayload !== null
+      ? {
+          folder_path: folderPath,
+          department: departmentOrPayload.department || '',
+          content: departmentOrPayload.content || '',
+          title: departmentOrPayload.title || ''
+        }
+      : {
+          folder_path: folderPath,
+          department: departmentOrPayload || '',
+          content: content || '',
+          title: title || ''
+        }
+
+    const response = await axios.post(`${API_BASE}/archive/update-work-record`, payload)
     return response.data
   }
 }
