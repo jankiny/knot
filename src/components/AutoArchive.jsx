@@ -3,7 +3,7 @@ import { Button, Empty, Input, message, Modal, Select, Space, Spin, Tag, Tooltip
 import { SearchOutlined } from '@ant-design/icons'
 import { archiveApi } from '../services/api'
 import { getDepartmentById, getDepartments, getSettings } from '../services/settings'
-import FolderCard from './FolderCard'
+import FolderCard, { getDisplayTitle } from './FolderCard'
 import './AutoArchive.css'
 
 const SOURCE_LABEL_MAP = {
@@ -211,7 +211,7 @@ function AutoArchive() {
 
   const handleViewContent = (folder) => {
     setContentFolder(folder)
-    setEditTitle(folder.title || folder.name || '')
+    setEditTitle(getDisplayTitle(folder) || '')
     setEditContent(folder.content || '')
     setContentVisible(true)
   }
@@ -347,7 +347,7 @@ function AutoArchive() {
         {editingFolder && (
           <div>
             <p style={{ marginBottom: 12 }}>
-              文件夹：<strong>{editingFolder.title || editingFolder.name}</strong>
+              文件夹：<strong>{getDisplayTitle(editingFolder)}</strong>
             </p>
             <Select
               style={{ width: '100%' }}
@@ -371,7 +371,7 @@ function AutoArchive() {
       </Modal>
 
       <Modal
-        title={contentFolder ? `工作记录 - ${contentFolder.title || contentFolder.name}` : '工作记录'}
+        title={contentFolder ? `工作记录 - ${getDisplayTitle(contentFolder)}` : '工作记录'}
         open={contentVisible}
         onOk={handleContentSave}
         onCancel={() => { setContentVisible(false); setContentFolder(null) }}

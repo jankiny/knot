@@ -578,9 +578,22 @@ func extractTitleFromBody(body string) string {
 	re := regexp.MustCompile(`(?m)^#\s+(.+)$`)
 	matches := re.FindStringSubmatch(body)
 	if len(matches) == 2 {
-		return strings.TrimSpace(matches[1])
+		title := strings.TrimSpace(matches[1])
+		if isGenericWorkRecordTitle(title) {
+			return ""
+		}
+		return title
 	}
 	return ""
+}
+
+func isGenericWorkRecordTitle(title string) bool {
+	switch strings.ToLower(strings.TrimSpace(title)) {
+	case "工作记录", "工作.md", "工作", "work record", "work.md", "work":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseTimeLoose(value string) time.Time {

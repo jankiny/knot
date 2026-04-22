@@ -9,7 +9,7 @@
 .folder-card-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .folder-row {
@@ -20,7 +20,9 @@
 }
 
 .folder-row-top {
-  align-items: flex-start;
+  align-items: center;
+  min-height: 28px;
+  flex-wrap: nowrap;
 }
 
 .folder-title-wrap {
@@ -35,7 +37,6 @@
 .folder-icon {
   color: #faad14;
   font-size: 16px;
-  margin-top: 2px;
   flex-shrink: 0;
 }
 
@@ -52,11 +53,13 @@
 
 .folder-actions {
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .folder-row-meta {
   flex-wrap: wrap;
   justify-content: flex-start;
+  margin-top: 0;
 }
 
 .folder-department-tag {
@@ -67,21 +70,17 @@
   width: 100%;
   font-size: 12px;
   color: #595959;
-  line-height: 1.6;
-  padding: 8px 10px;
+  line-height: 1.55;
+  padding: 6px 10px;
   background: #fafafa;
   border-radius: 4px;
   border-left: 2px solid #d9d9d9;
+  margin-top: 0;
   white-space: pre-wrap;
-}
-
-@media (max-width: 900px) {
-  .folder-row-top {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .folder-actions {
-    align-self: flex-end;
-  }
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
