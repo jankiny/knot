@@ -270,14 +270,36 @@ jobs:
         uses: actions/github-script@v7
         id: generate-notes
         with:
+          result-encoding: string
           script: |
-            const { data } = await github.rest.repos.generateReleaseNotes({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: "${{ needs.prepare.outputs.release_tag }}",
-              target_commitish: context.sha,
-            });
-            return data.body;
+            try {
+              const { data } = await github.rest.repos.generateReleaseNotes({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: "${{ needs.prepare.outputs.release_tag }}",
+                target_commitish: context.sha,
+              });
+
+              const notes = (data?.body || '').trim();
+              if (notes) {
+                return notes;
+              }
+
+              return [
+                '## 更新内容',
+                '- 本次发布未生成自动更新说明。',
+                `- 提交: ${context.sha}`,
+                '- 可前往 Commit 历史查看详细变更。'
+              ].join('\n');
+            } catch (error) {
+              core.warning(`自动生成 Release Notes 失败: ${error.message}`);
+              return [
+                '## 更新内容',
+                '- 自动生成更新说明失败，已使用兜底内容。',
+                `- 提交: ${context.sha}`,
+                '- 可前往 Commit 历史查看详细变更。'
+              ].join('\n');
+            }
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
