@@ -1,10 +1,20 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Button, Empty, Spin, message, Tag, Modal, Select, Tooltip, Space, Input } from 'antd'
-import { SearchOutlined, SendOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Empty, Input, message, Modal, Select, Space, Spin, Tag, Tooltip } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
 import { archiveApi } from '../services/api'
-import { getSettings, getDepartments, getDepartmentById } from '../services/settings'
-import FolderCard from './FolderCard'
+import { getDepartmentById, getDepartments, getSettings } from '../services/settings'
+import FolderCard, { getDisplayTitle } from './FolderCard'
 import './AutoArchive.css'
+
+const SOURCE_LABEL_MAP = {
+  manual: '手动',
+  email: '邮件'
+}
+
+function toSourceLabel(source) {
+  const key = String(source || '').trim().toLowerCase()
+  return SOURCE_LABEL_MAP[key] || source || ''
+}
 
 function AutoArchive() {
   const [loading, setLoading] = useState(false)
@@ -13,42 +23,36 @@ function AutoArchive() {
   const [departments, setDepartments] = useState([])
   const [activeMonthKey, setActiveMonthKey] = useState('')
 
-  // 编辑部门弹窗
   const [editDeptVisible, setEditDeptVisible] = useState(false)
   const [editingFolder, setEditingFolder] = useState(null)
   const [editDeptId, setEditDeptId] = useState(null)
 
-  // 查看/编辑内容弹窗
   const [contentVisible, setContentVisible] = useState(false)
   const [contentFolder, setContentFolder] = useState(null)
+  const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
 
   useEffect(() => {
     setDepartments(getDepartments())
-    // 进入页面自动扫描一次（静默模式，不弹提示）
     handleScan(true)
   }, [])
 
-  // 计算时间轴数据（按月份分组）
   const timelineData = useMemo(() => {
-    if (!folders || folders.length === 0) return []
+    if (!folders?.length) return []
 
     const monthMap = new Map()
     folders.forEach((folder) => {
       const createTime = folder.create_time || ''
-      if (!createTime) return
-      // 从 "2026-02-25 10:00" 格式中提取年月
       const match = createTime.match(/^(\d{4})-(\d{2})/)
       if (!match) return
+
       const year = match[1]
       const month = match[2]
-      const monthKey = `${year}-${month}`
-      const monthLabel = `${year}年${parseInt(month)}月`
-
-      if (!monthMap.has(monthKey)) {
-        monthMap.set(monthKey, {
-          key: monthKey,
-          label: monthLabel,
+      const key = `${year}-${month}`
+      if (!monthMap.has(key)) {
+        monthMap.set(key, {
+          key,
+          label: `${year}年${parseInt(month, 10)}月`,
           folderPath: folder.path,
           timestamp: new Date(createTime).getTime() || 0
         })
@@ -58,14 +62,12 @@ function AutoArchive() {
     return Array.from(monthMap.values()).sort((a, b) => b.timestamp - a.timestamp)
   }, [folders])
 
-  // 监听滚动高亮月份
   useEffect(() => {
-    if (!folders || folders.length === 0 || timelineData.length === 0) return
+    if (!folders?.length || !timelineData?.length) return undefined
 
-    let visibleFolders = new Map()
-
+    const visibleFolders = new Map()
     const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
+      entries.forEach((entry) => {
         if (entry.isIntersecting) {
           visibleFolders.set(entry.target.id, entry.boundingClientRect.top)
         } else {
@@ -73,44 +75,40 @@ function AutoArchive() {
         }
       })
 
-      if (visibleFolders.size > 0) {
-        let closestId = ''
-        let minTop = Infinity
+      if (visibleFolders.size === 0) return
 
+      let closestId = ''
+      let minTop = Infinity
+      for (const [id, top] of visibleFolders.entries()) {
+        const adjustedTop = top - 80
+        if (adjustedTop >= 0 && adjustedTop < minTop) {
+          minTop = adjustedTop
+          closestId = id
+        }
+      }
+
+      if (!closestId) {
+        let maxTop = -Infinity
         for (const [id, top] of visibleFolders.entries()) {
-          const adjustedTop = top - 80
-          if (adjustedTop >= 0 && adjustedTop < minTop) {
-            minTop = adjustedTop
+          if (top > maxTop) {
+            maxTop = top
             closestId = id
           }
         }
-        if (!closestId) {
-          let maxTop = -Infinity
-          for (const [id, top] of visibleFolders.entries()) {
-            if (top > maxTop) {
-              maxTop = top
-              closestId = id
-            }
-          }
-        }
-
-        if (closestId) {
-          const folderPath = closestId.replace('folder-', '')
-          const folder = folders.find(f => f.path === folderPath)
-          if (folder && folder.create_time) {
-            const match = folder.create_time.match(/^(\d{4})-(\d{2})/)
-            if (match) {
-              setActiveMonthKey(`${match[1]}-${match[2]}`)
-            }
-          }
-        }
       }
+
+      if (!closestId) return
+      const folderPath = closestId.replace('folder-', '')
+      const folder = folders.find((f) => f.path === folderPath)
+      if (!folder?.create_time) return
+      const match = folder.create_time.match(/^(\d{4})-(\d{2})/)
+      if (match) setActiveMonthKey(`${match[1]}-${match[2]}`)
     }, {
       rootMargin: '-80px 0px 0px 0px',
       threshold: [0, 0.1, 0.5, 0.9, 1]
     })
 
-    folders.forEach(folder => {
+    folders.forEach((folder) => {
       const el = document.getElementById(`folder-${folder.path}`)
       if (el) observer.observe(el)
     })
@@ -131,14 +129,13 @@ function AutoArchive() {
 
     setLoading(true)
     setFolders([])
-
     try {
       const result = await archiveApi.scan(scanPath)
       if (result.success) {
         setFolders(result.folders || [])
         setScanned(true)
         if (!silent) {
-          if (result.folders.length === 0) {
+          if ((result.folders || []).length === 0) {
             message.info('未找到含工作记录的文件夹')
           } else {
             message.success(`找到 ${result.folders.length} 个工作文件夹`)
@@ -155,11 +152,10 @@ function AutoArchive() {
     }
   }
 
-  // 归档操作
   const handleArchive = async (folder) => {
-    const dept = departments.find(d => d.name === folder.department)
+    const dept = departments.find((d) => d.name === folder.department)
     if (!dept) {
-      message.warning('请先编辑归属部门后再归档')
+      message.warning('请先点击部门标签指定归属部门后再归档')
       return
     }
 
@@ -179,7 +175,7 @@ function AutoArchive() {
           const result = await archiveApi.move(folder.path, dept.archivePath)
           if (result.success) {
             message.success(result.message || '归档成功')
-            setFolders(prev => prev.filter(f => f.path !== folder.path))
+            setFolders((prev) => prev.filter((f) => f.path !== folder.path))
           }
         } catch (error) {
           message.error(error.response?.data?.detail || '归档失败')
@@ -188,10 +184,9 @@ function AutoArchive() {
     })
   }
 
-  // 编辑部门
   const handleEditDept = (folder) => {
     setEditingFolder(folder)
-    const dept = departments.find(d => d.name === folder.department)
+    const dept = departments.find((d) => d.name === folder.department)
     setEditDeptId(dept ? dept.id : null)
     setEditDeptVisible(true)
   }
@@ -202,11 +197,11 @@ function AutoArchive() {
     if (!dept) return
 
     try {
-      await archiveApi.updateWorkRecord(editingFolder.path, dept.name, '')
+      await archiveApi.updateWorkRecord(editingFolder.path, { department: dept.name })
       message.success('归属部门已更新')
-      setFolders(prev => prev.map(f =>
+      setFolders((prev) => prev.map((f) => (
         f.path === editingFolder.path ? { ...f, department: dept.name } : f
-      ))
+      )))
       setEditDeptVisible(false)
       setEditingFolder(null)
     } catch (error) {
@@ -214,10 +209,10 @@ function AutoArchive() {
     }
   }
 
-  // 查看/编辑内容
   const handleViewContent = (folder) => {
     setContentFolder(folder)
-    setEditContent(folder.content || '')
+    setEditTitle(getDisplayTitle(folder) || '')
+    setEditContent(folder.raw_content || folder.content || '')
     setContentVisible(true)
   }
 
@@ -225,15 +220,55 @@ function AutoArchive() {
     if (!contentFolder) return
 
     try {
-      await archiveApi.updateWorkRecord(contentFolder.path, '', editContent)
+      const result = await archiveApi.updateWorkRecord(contentFolder.path, {
+        content: editContent,
+        title: editTitle,
+        rename_folder: true
+      })
       message.success('工作记录已更新')
-      setFolders(prev => prev.map(f =>
-        f.path === contentFolder.path ? { ...f, content: editContent } : f
-      ))
+
+      const nextPath = result?.path || contentFolder.path
+      const nextName = result?.name || contentFolder.name
+      const nextTitle = result?.title || editTitle || contentFolder.title
+      const nextCoreContent = result?.core_content || contentFolder.content
+      const nextRawContent = result?.content || editContent
+
+      setFolders((prev) => prev.map((f) => (
+        f.path === contentFolder.path
+          ? {
+              ...f,
+              path: nextPath,
+              name: nextName,
+              title: nextTitle,
+              content: nextCoreContent,
+              raw_content: nextRawContent
+            }
+          : f
+      )))
+      setContentFolder((prev) => (prev ? {
+        ...prev,
+        path: nextPath,
+        name: nextName,
+        title: nextTitle,
+        content: nextCoreContent,
+        raw_content: nextRawContent
+      } : prev))
       setContentVisible(false)
       setContentFolder(null)
     } catch (error) {
       message.error(error.response?.data?.detail || '更新失败')
+    }
+  }
+
+  const handleOpenFolder = async (folder) => {
+    if (!window.electronAPI?.openFolder) {
+      message.info('请在 Electron 客户端中打开目录')
+      return
+    }
+
+    const ok = await window.electronAPI.openFolder(folder.path)
+    if (!ok) {
+      message.error('打开目录失败')
     }
   }
 
@@ -254,40 +289,40 @@ function AutoArchive() {
         <div className="archive-list-content">
           {!scanned && folders.length === 0 && (
             <Empty
-              description={
+              description={(
                 <div>
                   <p style={{ margin: '0 0 8px 0' }}>当前工作目录：{settings.folderPath || '~/Desktop'}</p>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>
-                    点击右侧扫描按钮查找工作文件夹，或在「设置 → 文件夹设置 → 工作目录」中修改扫描位置
+                  <p style={{ margin: 0, fontSize: 12, color: '#888' }}>
+                    点击右侧扫描按钮查找工作文件夹，或在设置中修改工作目录。
                   </p>
                 </div>
-              }
+              )}
             />
           )}
 
           {scanned && folders.length === 0 && (
             <Empty
-              description={
+              description={(
                 <div>
                   <p style={{ margin: '0 0 8px 0' }}>工作目录中暂无含工作记录的文件夹</p>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>
-                    请先在邮件列表或快速创建中生成工作文件夹后再尝试扫描
+                  <p style={{ margin: 0, fontSize: 12, color: '#888' }}>
+                    请先在邮件列表或快速创建中生成任务文件夹后再扫描。
                   </p>
                 </div>
-              }
+              )}
             />
           )}
 
           {folders.length > 0 && (
             <div className="folders-list">
-              {folders.map(folder => (
+              {folders.map((folder) => (
                 <div key={folder.path} id={`folder-${folder.path}`} style={{ scrollMarginTop: 80 }}>
                   <FolderCard
                     folder={folder}
-                    departments={departments}
                     onArchive={handleArchive}
                     onEditDept={handleEditDept}
                     onViewContent={handleViewContent}
+                    onOpenFolder={handleOpenFolder}
                   />
                 </div>
               ))}
@@ -295,26 +330,26 @@ function AutoArchive() {
           )}
         </div>
 
-        {/* 右侧侧边栏：扫描按钮 + 时间滚动条 */}
         <div className="archive-sidebar">
           <Tooltip title="扫描工作文件夹" placement="left">
             <Button
               shape="circle"
               icon={<SearchOutlined />}
-              onClick={handleScan}
+              onClick={() => handleScan(false)}
               className="scan-btn"
             />
           </Tooltip>
+
           {timelineData.length > 0 && (
             <div className="archive-timeline">
-              <div className="timeline-track"></div>
+              <div className="timeline-track" />
               {timelineData.map((item) => (
                 <Tooltip title={item.label} placement="left" key={item.key}>
                   <div
                     className={`timeline-dot ${activeMonthKey === item.key ? 'active' : ''}`}
                     onClick={() => scrollToFolder(item.folderPath)}
                   >
-                    <div className="timeline-dot-inner"></div>
+                    <div className="timeline-dot-inner" />
                   </div>
                 </Tooltip>
               ))}
@@ -323,7 +358,6 @@ function AutoArchive() {
         </div>
       </div>
 
-      {/* 编辑部门弹窗 */}
       <Modal
         title="编辑归属部门"
         open={editDeptVisible}
@@ -335,13 +369,15 @@ function AutoArchive() {
       >
         {editingFolder && (
           <div>
-            <p style={{ marginBottom: 12 }}>文件夹：<strong>{editingFolder.name}</strong></p>
+            <p style={{ marginBottom: 12 }}>
+              文件夹：<strong>{getDisplayTitle(editingFolder)}</strong>
+            </p>
             <Select
               style={{ width: '100%' }}
               placeholder="请选择部门"
               value={editDeptId}
               onChange={setEditDeptId}
-              options={departments.map(d => ({
+              options={departments.map((d) => ({
                 label: d.name,
                 value: d.id,
                 desc: d.archivePath
@@ -357,24 +393,33 @@ function AutoArchive() {
         )}
       </Modal>
 
-      {/* 查看/编辑内容弹窗 */}
       <Modal
-        title={contentFolder ? `工作记录 - ${contentFolder.name}` : '工作记录'}
+        title={contentFolder ? `工作记录 - ${getDisplayTitle(contentFolder)}` : '工作记录'}
         open={contentVisible}
         onOk={handleContentSave}
         onCancel={() => { setContentVisible(false); setContentFolder(null) }}
         okText="保存"
         cancelText="取消"
-        width={600}
+        width={680}
       >
         {contentFolder && (
           <div>
             <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
               <Space>
-                {contentFolder.source && <Tag>{contentFolder.source}</Tag>}
+                {contentFolder.source && <Tag>{toSourceLabel(contentFolder.source)}</Tag>}
                 {contentFolder.create_time && <span>创建：{contentFolder.create_time}</span>}
               </Space>
             </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: '#666' }}>标题</label>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="请输入任务标题"
+              />
+            </div>
+
             <Input.TextArea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}

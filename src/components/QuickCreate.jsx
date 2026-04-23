@@ -1,14 +1,25 @@
-import { useState } from 'react'
-import { Card, Input, Button, DatePicker, message, Typography, Space, Divider } from 'antd'
-import { FolderAddOutlined, CalendarOutlined } from '@ant-design/icons'
+import { useMemo, useState } from 'react'
+import { Button, Card, DatePicker, Divider, Input, message, Typography } from 'antd'
+import { CalendarOutlined, FolderAddOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { folderApi } from '../services/api'
-import { getSettings, getDepartments, generateFolderHash } from '../services/settings'
+import { formatFolderName, generateFolderHash, getSettings } from '../services/settings'
 import DepartmentSelectModal from './DepartmentSelectModal'
 import './QuickCreate.css'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
+
+function buildQuickCreateFolderName(settings, workContent, selectedDate) {
+  const content = workContent.trim()
+  if (!content) return ''
+
+  return formatFolderName(settings.folderNameFormat, {
+    subject: content,
+    date: selectedDate.toISOString(),
+    from: ''
+  })
+}
 
 function QuickCreate() {
   const [workContent, setWorkContent] = useState('')
@@ -16,15 +27,11 @@ function QuickCreate() {
   const [creating, setCreating] = useState(false)
   const [deptModalOpen, setDeptModalOpen] = useState(false)
 
-  // 生成文件夹名称预览
-  const getFolderNamePreview = () => {
-    if (!workContent.trim()) return ''
-    const dateStr = selectedDate.format('YYYY.MM.DD')
-    const safeContent = workContent.trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 50)
-    return `${dateStr}_${safeContent}`
-  }
+  const folderPreview = useMemo(() => {
+    const settings = getSettings()
+    return buildQuickCreateFolderName(settings, workContent, selectedDate)
+  }, [workContent, selectedDate])
 
-  // 打开部门选择弹窗
   const handleCreate = () => {
     if (!workContent.trim()) {
       message.warning('请输入工作内容')
@@ -33,23 +40,24 @@ function QuickCreate() {
     setDeptModalOpen(true)
   }
 
-  // 确认选择部门后创建文件夹
   const handleDeptConfirm = async (department) => {
     setDeptModalOpen(false)
     await createFolder(department)
   }
 
-  // 创建文件夹
   const createFolder = async (department = null) => {
     setCreating(true)
     try {
       const settings = getSettings()
-      const folderName = getFolderNamePreview()
+      const folderName = buildQuickCreateFolderName(settings, workContent, selectedDate)
+      if (!folderName) {
+        message.warning('无法生成文件夹名称，请检查输入')
+        return
+      }
 
       const requestData = {
         base_path: settings.folderPath,
         folder_name: folderName,
-        // 手动创建，无邮件相关内容
         mail_id: null,
         subject: workContent.trim(),
         date: selectedDate.toISOString(),
@@ -58,16 +66,13 @@ function QuickCreate() {
         use_sub_folder: false,
         save_mail_content: false,
         attachments: [],
-        // 部门信息
         department: department ? department.name : null,
-        source: '快速创建',
+        source: 'manual',
         hash: await generateFolderHash(folderName)
       }
 
       const result = await folderApi.create(requestData)
       message.success(result.message || `文件夹已创建: ${folderName}`)
-
-      // 清空输入
       setWorkContent('')
       setSelectedDate(dayjs())
     } catch (error) {
@@ -77,15 +82,11 @@ function QuickCreate() {
     }
   }
 
-  const folderPreview = getFolderNamePreview()
-
   return (
     <div className="quick-create">
       <Card variant="borderless">
         <Title level={4}>快速创建工作文件夹</Title>
-        <Text type="secondary">
-          用于非邮件来源的工作任务，创建后可使用自动归档功能
-        </Text>
+        <Text type="secondary">用于非邮件来源任务，自动按命名规则生成文件夹并创建标准结构。</Text>
 
         <Divider />
 
@@ -107,7 +108,7 @@ function QuickCreate() {
             <TextArea
               value={workContent}
               onChange={(e) => setWorkContent(e.target.value)}
-              placeholder="请输入工作内容，例如：项目进度汇报、会议纪要、系统维护..."
+              placeholder="请输入工作内容，例如：项目进度汇报、会议纪要、系统维护"
               rows={3}
               maxLength={50}
               showCount
@@ -140,14 +141,13 @@ function QuickCreate() {
         </div>
       </Card>
 
-      {/* 部门选择弹窗 */}
       <DepartmentSelectModal
         open={deptModalOpen}
         mail={null}
         onConfirm={handleDeptConfirm}
         onCancel={() => setDeptModalOpen(false)}
         title="选择所属部门"
-        description="选择该工作任务所属的部门，用于后续归档"
+        description="选择该任务所属部门，用于后续归档。"
       />
     </div>
   )

@@ -26,6 +26,14 @@
   color: #666;
 }
 
+.settings-help-icon {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #262626;
+  vertical-align: middle;
+  cursor: help;
+}
+
 .setting-item.inline {
   display: flex;
   justify-content: space-between;

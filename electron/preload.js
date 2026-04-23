@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 选择文件夹
   selectFolder: () => ipcRenderer.invoke('select-folder'),
 
+  // 在系统资源管理器中打开文件夹
+  openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
+
   // 加密密码
   encryptPassword: (password) => ipcRenderer.invoke('encrypt-password', password),
 

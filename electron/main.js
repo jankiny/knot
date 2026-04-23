@@ -179,6 +179,17 @@ if (!gotTheLock) {
       return null
     })
 
+    ipcMain.handle('open-folder', async (event, folderPath) => {
+      if (!folderPath) return false
+      try {
+        const error = await shell.openPath(folderPath)
+        return error === ''
+      } catch (err) {
+        console.error('打开目录失败:', err)
+        return false
+      }
+    })
+
     ipcMain.handle('encrypt-password', async (event, password) => {
       if (!password) return null
       try {

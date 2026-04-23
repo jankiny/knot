@@ -1,26 +1,28 @@
-import { useState, useEffect, useMemo } from 'react'
-import { ConfigProvider, Layout, Menu, Button, theme } from 'antd'
+import { useEffect, useState } from 'react'
+import { Button, ConfigProvider, Layout, Menu, theme } from 'antd'
 import {
-  MailOutlined,
+  BlockOutlined,
+  BorderOutlined,
+  CloseOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
   InfoCircleOutlined,
-  SettingOutlined,
-  MenuUnfoldOutlined,
+  MailOutlined,
   MenuFoldOutlined,
-  PlusSquareOutlined,
+  MenuUnfoldOutlined,
   MinusOutlined,
-  BorderOutlined,
-  BlockOutlined,
-  CloseOutlined
+  PlusSquareOutlined,
+  SettingOutlined
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
-import MailList from './components/MailList'
-import AutoArchive from './components/AutoArchive'
-import Settings from './components/Settings'
 import About from './components/About'
+import AutoArchive from './components/AutoArchive'
+import DailyReport from './components/DailyReport'
+import MailList from './components/MailList'
 import QuickCreate from './components/QuickCreate'
-import { getSettings } from './services/settings'
+import Settings from './components/Settings'
 import { USE_MOCK } from './services/api'
+import { getSettings } from './services/settings'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
@@ -32,68 +34,35 @@ function App() {
   const [settings, setSettings] = useState(getSettings())
 
   const {
-    token: { colorBgContainer, borderRadiusLG },
+    token: { colorBgContainer, borderRadiusLG }
   } = theme.useToken()
 
   const isIntegratedStyle = settings.windowStyle === 'integrated'
 
-  // 监听打开设置的事件
   useEffect(() => {
     const handleOpenSettings = () => setActiveKey('settings')
-    window.addEventListener('openSettings', handleOpenSettings)
-
-    // 我们也可能需要监听设置的更改以便实时更新 windowStyle，
-    // 这里简单处理为每次重新渲染或切回前台时重新获取
     const handleFocus = () => setSettings(getSettings())
+    window.addEventListener('openSettings', handleOpenSettings)
     window.addEventListener('focus', handleFocus)
-
     return () => {
       window.removeEventListener('openSettings', handleOpenSettings)
       window.removeEventListener('focus', handleFocus)
     }
   }, [])
 
-  // 监听窗口最大化状态
   useEffect(() => {
-    if (window.electronAPI) {
-      window.electronAPI.isWindowMaximized().then(status => setIsMaximized(status))
-      window.electronAPI.onMaximizedStateChange((isMax) => {
-        setIsMaximized(isMax)
-      })
-      return () => {
-        window.electronAPI.removeMaximizedStateListener()
-      }
-    }
+    if (!window.electronAPI) return undefined
+
+    window.electronAPI.isWindowMaximized().then((status) => setIsMaximized(status))
+    window.electronAPI.onMaximizedStateChange((isMax) => setIsMaximized(isMax))
+    return () => window.electronAPI.removeMaximizedStateListener()
   }, [])
 
-  const handleMinimize = () => {
-    if (window.electronAPI) window.electronAPI.minimizeWindow()
-  }
-
-  const handleMaximize = () => {
-    if (window.electronAPI) window.electronAPI.maximizeWindow()
-  }
-
-  const handleClose = () => {
-    if (window.electronAPI) window.electronAPI.closeWindow()
-  }
-
   const menuItems = [
-    {
-      key: 'mail',
-      icon: <MailOutlined />,
-      label: '邮件列表',
-    },
-    {
-      key: 'quick',
-      icon: <PlusSquareOutlined />,
-      label: '快速创建',
-    },
-    {
-      key: 'archive',
-      icon: <FolderOpenOutlined />,
-      label: '自动归档',
-    },
+    { key: 'mail', icon: <MailOutlined />, label: '邮件列表' },
+    { key: 'quick', icon: <PlusSquareOutlined />, label: '快速创建' },
+    { key: 'archive', icon: <FolderOpenOutlined />, label: '自动归档' },
+    { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' }
   ]
 
   const renderContent = () => {
@@ -104,6 +73,8 @@ function App() {
         return <QuickCreate />
       case 'archive':
         return <AutoArchive />
+      case 'daily':
+        return <DailyReport />
       case 'about':
         return <About />
       case 'settings':
@@ -115,12 +86,20 @@ function App() {
 
   const getHeaderTitle = () => {
     switch (activeKey) {
-      case 'mail': return '邮件列表'
-      case 'quick': return '快速创建'
-      case 'archive': return '自动归档'
-      case 'about': return '关于'
-      case 'settings': return '设置'
-      default: return 'Knot 绳结'
+      case 'mail':
+        return '邮件列表'
+      case 'quick':
+        return '快速创建'
+      case 'archive':
+        return '自动归档'
+      case 'daily':
+        return '日报生成'
+      case 'about':
+        return '关于'
+      case 'settings':
+        return '设置'
+      default:
+        return 'Knot 绳结'
     }
   }
 
@@ -160,43 +139,41 @@ function App() {
             </Button>
           </div>
         </Sider>
+
         <Layout>
-          <Header style={{ padding: 0, background: colorBgContainer }} className={`app-header ${isIntegratedStyle ? 'integrated-drag' : ''}`}>
+          <Header
+            style={{ padding: 0, background: colorBgContainer }}
+            className={`app-header ${isIntegratedStyle ? 'integrated-drag' : ''}`}
+          >
             <div className={`header-left ${isIntegratedStyle ? 'integrated-no-drag' : ''}`}>
               <Button
                 type="text"
                 icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                 onClick={() => setCollapsed(!collapsed)}
-                style={{
-                  fontSize: '16px',
-                  width: 64,
-                  height: 64,
-                }}
+                style={{ fontSize: 16, width: 64, height: 64 }}
               />
               <h2 className={`page-title ${isIntegratedStyle ? 'integrated-drag' : ''}`}>{getHeaderTitle()}</h2>
             </div>
+
             <div className={`header-right ${isIntegratedStyle ? 'integrated-no-drag' : ''}`}>
               {USE_MOCK && <span className={`mock-badge ${isIntegratedStyle ? 'integrated-no-drag' : ''}`}>Mock 模式</span>}
 
               {isIntegratedStyle && (
                 <div className="window-controls integrated-no-drag">
-                  <div className="window-btn" onClick={handleMinimize} title="最小化">
-                    <MinusOutlined style={{ fontSize: '12px' }} />
+                  <div className="window-btn" onClick={() => window.electronAPI?.minimizeWindow()} title="最小化">
+                    <MinusOutlined style={{ fontSize: 12 }} />
                   </div>
-                  <div className="window-btn" onClick={handleMaximize} title={isMaximized ? "向下还原" : "最大化"}>
-                    {isMaximized ? (
-                      <BlockOutlined style={{ fontSize: '11px' }} />
-                    ) : (
-                      <BorderOutlined style={{ fontSize: '11px' }} />
-                    )}
+                  <div className="window-btn" onClick={() => window.electronAPI?.maximizeWindow()} title={isMaximized ? '向下还原' : '最大化'}>
+                    {isMaximized ? <BlockOutlined style={{ fontSize: 11 }} /> : <BorderOutlined style={{ fontSize: 11 }} />}
                   </div>
-                  <div className="window-btn close" onClick={handleClose} title="关闭">
-                    <CloseOutlined style={{ fontSize: '12px' }} />
+                  <div className="window-btn close" onClick={() => window.electronAPI?.closeWindow()} title="关闭">
+                    <CloseOutlined style={{ fontSize: 12 }} />
                   </div>
                 </div>
               )}
             </div>
           </Header>
+
           <Content
             style={{
               margin: '24px 16px',
@@ -210,7 +187,7 @@ function App() {
           </Content>
         </Layout>
       </Layout>
-    </ConfigProvider >
+    </ConfigProvider>
   )
 }
 
