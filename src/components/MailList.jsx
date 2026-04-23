@@ -3,12 +3,16 @@ import { List, Card, Button, Tag, Collapse, message, Spin, Empty, Tooltip, Modal
 import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
 import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
 import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments } from '../services/settings'
+import { readMailCache, saveMailCache } from '../services/mailCache'
 import DepartmentSelectModal from './DepartmentSelectModal'
 import './MailList.css'
 
 function MailList() {
   const [mails, setMails] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefreshAt, setLastRefreshAt] = useState(0)
+  const [showRefreshTip, setShowRefreshTip] = useState(false)
   const [creating, setCreating] = useState({})
   const [previewMail, setPreviewMail] = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
@@ -29,11 +33,42 @@ function MailList() {
 
   // 用于防止 StrictMode 双重调用导致的竞态条件
   const fetchIdRef = useRef(0)
+  const refreshTipTimerRef = useRef(null)
 
-  const fetchMails = async () => {
+  const formatRefreshTime = (timestamp) => {
+    if (!timestamp) return ''
+    try {
+      return new Date(timestamp).toLocaleTimeString('zh-CN', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+    } catch {
+      return ''
+    }
+  }
+
+  const showRefreshHint = (timestamp) => {
+    if (!timestamp) return
+    setLastRefreshAt(timestamp)
+    setShowRefreshTip(true)
+    if (refreshTipTimerRef.current) {
+      clearTimeout(refreshTipTimerRef.current)
+    }
+    refreshTipTimerRef.current = setTimeout(() => {
+      setShowRefreshTip(false)
+    }, 2600)
+  }
+
+  const fetchMails = async ({ pageLoading = false, showHint = true } = {}) => {
     // 递增 fetchId，用于忽略过时的请求结果（防止 StrictMode 双重调用竞态）
     const currentFetchId = ++fetchIdRef.current
-    setLoading(true)
+    if (pageLoading) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
     setConnectionError(null)
     try {
       const settings = getSettings()
@@ -74,6 +109,12 @@ function MailList() {
       if (currentFetchId !== fetchIdRef.current) return
       const mailData = result.data || []
       setMails(mailData)
+      const saved = saveMailCache(settings, mailData)
+      const refreshedAt = saved?.cachedAt || Date.now()
+      setLastRefreshAt(refreshedAt)
+      if (showHint) {
+        showRefreshHint(refreshedAt)
+      }
 
       // 加载已生成状态：通过后端扫描工作目录获取已有的 hash
       loadGeneratedHashes(mailData, settings)
@@ -90,16 +131,40 @@ function MailList() {
       } else {
         setConnectionError('unknown')
       }
-      setMails([])
+      if (pageLoading) {
+        setMails([])
+      }
     } finally {
       if (currentFetchId === fetchIdRef.current) {
         setLoading(false)
+        setRefreshing(false)
       }
     }
   }
 
   useEffect(() => {
-    fetchMails()
+    const settings = getSettings()
+    const cached = readMailCache(settings)
+
+    if (cached) {
+      setMails(cached.mails || [])
+      setFetchDays(cached.mailDays)
+      setLastRefreshAt(cached.cachedAt || 0)
+      setLoading(false)
+      loadGeneratedHashes(cached.mails || [], settings)
+      fetchMails()
+      return
+    }
+
+    fetchMails({ pageLoading: true, showHint: false })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTipTimerRef.current) {
+        clearTimeout(refreshTipTimerRef.current)
+      }
+    }
   }, [])
 
   // 加载已生成状态：扫描工作目录和归档目录，构建 hash -> status 映射
@@ -463,6 +528,11 @@ function MailList() {
     <div className="mail-list">
       <div className="mail-list-container">
         <div className="mail-list-content">
+          {showRefreshTip && lastRefreshAt > 0 && (
+            <div className="refresh-time-tip">
+              <Tag color="processing">{`最近刷新：${formatRefreshTime(lastRefreshAt)}`}</Tag>
+            </div>
+          )}
           {/* 连接错误提示 */}
           {connectionError && (
             <Alert
@@ -619,7 +689,8 @@ function MailList() {
             <Button
               shape="circle"
               icon={<ReloadOutlined />}
-              onClick={fetchMails}
+              onClick={() => fetchMails()}
+              loading={refreshing}
               className="refresh-btn"
             />
           </Tooltip>

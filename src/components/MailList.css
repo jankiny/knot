@@ -198,6 +198,20 @@
   min-width: 0;
 }
 
+.refresh-time-tip {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+  pointer-events: none;
+}
+
+.refresh-time-tip .ant-tag {
+  margin-inline-end: 0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.16);
+}
+
 .mail-sidebar {
   position: sticky;
   top: 80px;

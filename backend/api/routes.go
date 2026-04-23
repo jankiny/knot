@@ -26,7 +26,11 @@ import (
 )
 
 const (
-	workRecordFileName = "工作记录.md"
+	workRecordFileName = "\u5de5\u4f5c\u8bb0\u5f55.md"
+	taskSourceDirName  = "00_\u6765\u6e90\u8d44\u6599"
+	taskProcessDirName = "10_\u8fc7\u7a0b\u6587\u4ef6"
+	taskOutputDirName  = "20_\u6210\u679c\u8f93\u51fa"
+	taskAttachmentDir  = "\u9644\u4ef6"
 )
 
 var mailClient *mail.MailClient
@@ -239,9 +243,9 @@ func normalizeSource(source string, hasMailID bool) string {
 
 func createTaskStructure(folderPath string) error {
 	dirs := []string{
-		filepath.Join(folderPath, "00_Source"),
-		filepath.Join(folderPath, "10_Process"),
-		filepath.Join(folderPath, "20_Output"),
+		filepath.Join(folderPath, taskSourceDirName),
+		filepath.Join(folderPath, taskProcessDirName),
+		filepath.Join(folderPath, taskOutputDirName),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -337,8 +341,8 @@ func writePlainTextPDF(filePath string, title string, body string) error {
 }
 
 func writeEmailSourceFiles(folderPath string, req FolderRequest) error {
-	sourceDir := filepath.Join(folderPath, "00_Source")
-	if err := os.MkdirAll(filepath.Join(sourceDir, "attachments"), 0o755); err != nil {
+	sourceDir := filepath.Join(folderPath, taskSourceDirName)
+	if err := os.MkdirAll(filepath.Join(sourceDir, taskAttachmentDir), 0o755); err != nil {
 		return err
 	}
 
@@ -357,17 +361,9 @@ func writeEmailSourceFiles(folderPath string, req FolderRequest) error {
 	return nil
 }
 
-func writeManualSourceFiles(folderPath string, req FolderRequest) error {
-	sourceDir := filepath.Join(folderPath, "00_Source")
-	if err := os.MkdirAll(filepath.Join(sourceDir, "references"), 0o755); err != nil {
-		return err
-	}
-	content := strings.TrimSpace(req.Subject)
-	if content == "" {
-		content = "请补充任务需求。"
-	}
-	text := fmt.Sprintf("# 需求说明\n\n%s\n", content)
-	return os.WriteFile(filepath.Join(sourceDir, "requirement.md"), []byte(text), 0o644)
+func writeManualSourceFiles(folderPath string) error {
+	sourceDir := filepath.Join(folderPath, taskSourceDirName)
+	return os.MkdirAll(sourceDir, 0o755)
 }
 
 func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceType string, now time.Time) string {
@@ -386,6 +382,13 @@ func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceTy
 	}
 	hash := strings.TrimSpace(req.Hash)
 	projectPath := filepath.ToSlash(folderPath)
+	sourceDirHint := fmt.Sprintf("`%s/`", taskSourceDirName)
+	processDirHint := fmt.Sprintf("`%s/`", taskProcessDirName)
+	outputDirHint := fmt.Sprintf("`%s/`", taskOutputDirName)
+	goal := strings.TrimSpace(req.Subject)
+	if goal == "" {
+		goal = "请补充任务目标。"
+	}
 
 	return fmt.Sprintf(`---
 type: task
@@ -407,7 +410,7 @@ tags:
 
 - 来源：%s
 - 发起人：%s
-- 关联材料：`+"`00_Source/`"+`
+- 关联材料：%s
 
 ## 任务目标
 
@@ -422,11 +425,11 @@ tags:
 
 ## 过程文件
 
-- 过程资料位置：`+"`10_Process/`"+`
+- 过程资料位置：%s
 
 ## 产出成果
 
-- 最终成果位置：`+"`20_Output/`"+`
+- 最终成果位置：%s
 
 ## AI 日志摘要
 
@@ -435,7 +438,7 @@ tags:
 - 本地状态：active
 - 归档位置：
 - 归档时间：
-`, createdDate, sourceType, req.Department, projectPath, hash, folderName, sourceLabel, initiator, strings.TrimSpace(req.Subject), createdDate)
+`, createdDate, sourceType, req.Department, projectPath, hash, folderName, sourceLabel, initiator, sourceDirHint, goal, createdDate, processDirHint, outputDirHint)
 }
 
 func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
@@ -473,7 +476,7 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 			return
 		}
 	} else {
-		if err := writeManualSourceFiles(folderPath, req); err != nil {
+		if err := writeManualSourceFiles(folderPath); err != nil {
 			jsonError(w, http.StatusInternalServerError, fmt.Sprintf("保存需求来源失败: %v", err))
 			return
 		}
@@ -481,7 +484,7 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 
 	var downloaded []string
 	if downloadAttachments && sourceType == "email" && mailClient != nil && strings.TrimSpace(req.MailID) != "" {
-		attachmentsPath := filepath.Join(folderPath, "00_Source", "attachments")
+		attachmentsPath := filepath.Join(folderPath, taskSourceDirName, taskAttachmentDir)
 		d, err := mailClient.DownloadAttachments(req.MailID, attachmentsPath)
 		if err == nil {
 			downloaded = d
@@ -1239,15 +1242,14 @@ type DailyReportLog struct {
 	Content    string `json:"content"`
 }
 
-const dailyReportSystemPrompt = `你是一个办公室工作日报助手。请根据用户提供的任务文件夹工作记录，生成一条简洁、正式、可直接放入日报的工作日志。
+const dailyReportSystemPrompt = `你是企业办公日报助手。请根据输入的任务工作记录，输出一条可直接粘贴到日报中的中文内容。
 
 要求：
-1. 只输出一条日志，不要解释。
-2. 使用中文。
-3. 句式优先采用“完成了……，计划完成……”。
-4. 如果材料中没有明确下一步计划，可以根据任务目标生成合理但保守的计划。
-5. 不编造具体成果、数字、会议、人名。
-6. 日志长度控制在 50 到 120 字。`
+1. 只输出一条内容，不输出标题、序号、解释或引号。
+2. 字数控制在 50 到 100 字。
+3. 采用“完成了……，推进了……，下一步……”的办公表达。
+4. 只能依据输入内容，不编造数字、人名、会议、成果或结论。
+5. 当信息不足时，使用保守描述，避免夸大。`
 
 func normalizeAIEndpoint(apiURL string) string {
 	apiURL = strings.TrimSpace(apiURL)
@@ -1264,11 +1266,24 @@ func normalizeAIEndpoint(apiURL string) string {
 	return apiURL + "/v1/chat/completions"
 }
 
+var dailyLogPrefixPattern = regexp.MustCompile(`^(?:[-*+]\s*|[0-9]+[.)、]\s*)+`)
+
 func cleanDailyLog(log string) string {
 	log = strings.TrimSpace(strings.ReplaceAll(log, "\r\n", "\n"))
-	log = strings.Join(strings.Fields(log), " ")
-	log = strings.TrimPrefix(log, "- ")
-	return log
+	lines := strings.Split(log, "\n")
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts = append(parts, line)
+	}
+
+	log = strings.Join(parts, " ")
+	log = strings.Trim(log, "\"'` ")
+	log = dailyLogPrefixPattern.ReplaceAllString(log, "")
+	return strings.TrimSpace(log)
 }
 
 func truncateRunes(input string, max int) string {
@@ -1279,11 +1294,34 @@ func truncateRunes(input string, max int) string {
 	return string(runes[:max])
 }
 
-func extractSectionContent(body, header string) string {
+func normalizeSectionLine(line string) string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "- ")
+	line = strings.TrimPrefix(line, "* ")
+	line = strings.TrimPrefix(line, "+ ")
+	line = strings.TrimPrefix(line, "> ")
+	line = dailyLogPrefixPattern.ReplaceAllString(line, "")
+	return strings.TrimSpace(line)
+}
+
+func extractSectionContent(body string, headers ...string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+
+	headerSet := make(map[string]struct{}, len(headers))
+	for _, header := range headers {
+		header = strings.TrimSpace(header)
+		if header == "" {
+			continue
+		}
+		headerSet[header] = struct{}{}
+	}
+
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 	start := -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == header {
+		if _, ok := headerSet[strings.TrimSpace(line)]; ok {
 			start = i + 1
 			break
 		}
@@ -1298,12 +1336,56 @@ func extractSectionContent(body, header string) string {
 		if strings.HasPrefix(line, "## ") {
 			break
 		}
-		line = strings.TrimPrefix(line, "- ")
+		line = normalizeSectionLine(line)
 		if line != "" {
 			collected = append(collected, line)
 		}
 	}
 	return strings.Join(collected, " ")
+}
+
+func buildDailyReportInput(title, workRecord string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "未命名任务"
+	}
+
+	goal := truncateRunes(extractSectionContent(workRecord, "## 任务目标"), 220)
+	workLog := truncateRunes(extractSectionContent(workRecord, "## 工作日志"), 320)
+	processFiles := truncateRunes(extractSectionContent(workRecord, "## 过程文件"), 200)
+	outputSummary := truncateRunes(extractSectionContent(workRecord, "## 产出成果"), 200)
+	aiSummary := truncateRunes(extractSectionContent(workRecord, "## AI 日志摘要", "## AI日志摘要"), 180)
+
+	processOutput := strings.TrimSpace(strings.Join([]string{
+		strings.TrimSpace(processFiles),
+		strings.TrimSpace(outputSummary),
+	}, "；"))
+	processOutput = strings.Trim(processOutput, "； ")
+
+	if goal == "" {
+		goal = "未记录"
+	}
+	if workLog == "" {
+		workLog = truncateRunes(cleanDailyLog(workRecord), 220)
+		if workLog == "" {
+			workLog = "未记录"
+		}
+	}
+	if processOutput == "" {
+		processOutput = "未记录"
+	}
+	if aiSummary == "" {
+		aiSummary = "未记录"
+	}
+
+	return fmt.Sprintf(
+		"任务标题：%s\n任务目标：%s\n工作日志：%s\n过程文件/成果摘要：%s\nAI日志摘要：%s",
+		title,
+		goal,
+		workLog,
+		processOutput,
+		aiSummary,
+	)
 }
 
 func fallbackDailyLog(title, workRecord string) string {
@@ -1321,17 +1403,17 @@ func fallbackDailyLog(title, workRecord string) string {
 
 	title = truncateRunes(title, 22)
 	goal = truncateRunes(goal, 36)
-	log := fmt.Sprintf("完成了%s相关材料整理与记录沉淀，计划完成%s并整理最终成果至20_Output。", title, goal)
+	log := fmt.Sprintf("完成了%s相关材料整理，推进了%s，下一步将继续完善并归集到%s。", title, goal, taskOutputDirName)
 	return truncateRunes(log, 120)
 }
 
-func generateDailyLogWithAI(cfg DailyReportAIConfig, date, title, workRecord string) (string, error) {
+func generateDailyLogWithAI(cfg DailyReportAIConfig, date, reportInput string) (string, error) {
 	endpoint := normalizeAIEndpoint(cfg.APIURL)
 	if endpoint == "" {
 		return "", fmt.Errorf("empty api endpoint")
 	}
 
-	userPrompt := fmt.Sprintf("日期：%s\n任务标题：%s\n\n工作记录：\n%s", date, title, workRecord)
+	userPrompt := fmt.Sprintf("日期：%s\n%s", date, reportInput)
 	payload := map[string]interface{}{
 		"model": cfg.Model,
 		"messages": []map[string]string{
@@ -1434,13 +1516,17 @@ func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 			workRecord = fmt.Sprintf("任务标题：%s", title)
 		}
 
+		reportInput := buildDailyReportInput(title, workRecord)
 		content := fallbackDailyLog(title, workRecord)
 		if aiEnabled {
-			if generated, err := generateDailyLogWithAI(req.AI, reportDate, title, workRecord); err == nil {
+			if generated, err := generateDailyLogWithAI(req.AI, reportDate, reportInput); err == nil {
 				content = generated
 			}
 		}
-		content = cleanDailyLog(content)
+		content = truncateRunes(cleanDailyLog(content), 160)
+		if content == "" {
+			content = fallbackDailyLog(title, workRecord)
+		}
 
 		logs = append(logs, DailyReportLog{
 			FolderPath: item.FolderPath,

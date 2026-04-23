@@ -100,16 +100,24 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 
 	folderPath := filepath.Join(tmpDir, "2026.04.20_Manual_Task")
 	mustExist := []string{
-		filepath.Join(folderPath, "00_Source"),
-		filepath.Join(folderPath, "10_Process"),
-		filepath.Join(folderPath, "20_Output"),
-		filepath.Join(folderPath, "00_Source", "references"),
-		filepath.Join(folderPath, "00_Source", "requirement.md"),
+		filepath.Join(folderPath, taskSourceDirName),
+		filepath.Join(folderPath, taskProcessDirName),
+		filepath.Join(folderPath, taskOutputDirName),
 		filepath.Join(folderPath, workRecordFileName),
 	}
 	for _, p := range mustExist {
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			t.Fatalf("expected path not found: %s", p)
+		}
+	}
+
+	removedPaths := []string{
+		filepath.Join(folderPath, taskSourceDirName, "references"),
+		filepath.Join(folderPath, taskSourceDirName, "requirement.md"),
+	}
+	for _, p := range removedPaths {
+		if _, err := os.Stat(p); err == nil {
+			t.Fatalf("legacy path should not exist: %s", p)
 		}
 	}
 
@@ -121,6 +129,9 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 		"department: 法务部",
 		"hash: manualhash001",
 		"# 2026.04.20_Manual_Task",
+		"关联材料：`00_来源资料/`",
+		"过程资料位置：`10_过程文件/`",
+		"最终成果位置：`20_成果输出/`",
 	} {
 		if !strings.Contains(wr, expect) {
 			t.Fatalf("work record missing %q\n%s", expect, wr)
@@ -156,9 +167,9 @@ func TestHandleCreateFolder_EmailStructure(t *testing.T) {
 
 	folderPath := filepath.Join(tmpDir, "2026.04.20_Email_Task")
 	mustExist := []string{
-		filepath.Join(folderPath, "00_Source", "email.txt"),
-		filepath.Join(folderPath, "00_Source", "email.pdf"),
-		filepath.Join(folderPath, "00_Source", "attachments"),
+		filepath.Join(folderPath, taskSourceDirName, "email.txt"),
+		filepath.Join(folderPath, taskSourceDirName, "email.pdf"),
+		filepath.Join(folderPath, taskSourceDirName, taskAttachmentDir),
 	}
 	for _, p := range mustExist {
 		if _, err := os.Stat(p); os.IsNotExist(err) {
@@ -441,6 +452,49 @@ hash:
 	content := logItem["content"].(string)
 	if !strings.Contains(content, "完成了") {
 		t.Fatalf("unexpected log content: %s", content)
+	}
+}
+
+func TestBuildDailyReportInput_ExtractsKeySections(t *testing.T) {
+	workRecord := `# 示例任务
+
+## 任务目标
+
+- 完成接口联调并确认错误处理策略。
+
+## 工作日志
+
+- 处理了返回码兼容问题。
+- 完成基础联调验证。
+
+## 过程文件
+
+- 更新了对接说明文档。
+
+## 产出成果
+
+- 输出了联调记录。
+
+## AI 日志摘要
+
+- 已同步风险点。
+
+## 归档记录
+
+- 本地状态：active
+`
+
+	input := buildDailyReportInput("示例任务", workRecord)
+	for _, expected := range []string{
+		"任务标题：示例任务",
+		"任务目标：完成接口联调并确认错误处理策略。",
+		"工作日志：处理了返回码兼容问题。 完成基础联调验证。",
+		"过程文件/成果摘要：更新了对接说明文档。；输出了联调记录。",
+		"AI日志摘要：已同步风险点。",
+	} {
+		if !strings.Contains(input, expected) {
+			t.Fatalf("expected %q in input, got:\n%s", expected, input)
+		}
 	}
 }
 
