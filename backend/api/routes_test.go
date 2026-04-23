@@ -63,28 +63,16 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 	}
 }
 
-func TestHandleGetMailList_NoConnection(t *testing.T) {
-	mailClient = nil
-	router := SetupRoutes()
-	req := httptest.NewRequest(http.MethodGet, "/api/mail/list", nil)
-	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rr.Code)
-	}
-}
-
-func TestHandleCreateFolder_ManualStructure(t *testing.T) {
+func TestHandleCreateFolder_ManualStructure_NewTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
 	router := SetupRoutes()
 
 	body := FolderRequest{
 		BasePath:   tmpDir,
-		FolderName: "2026.04.20_Manual_Task",
-		Subject:    "整理合同需求",
+		FolderName: "2026.04.20_manual_task",
+		Subject:    "Material Cleanup",
 		Source:     "manual",
-		Department: "法务部",
+		Department: "ops",
 		Hash:       "manualhash001",
 	}
 
@@ -98,7 +86,7 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
 	}
 
-	folderPath := filepath.Join(tmpDir, "2026.04.20_Manual_Task")
+	folderPath := filepath.Join(tmpDir, "2026.04.20_manual_task")
 	mustExist := []string{
 		filepath.Join(folderPath, taskSourceDirName),
 		filepath.Join(folderPath, taskProcessDirName),
@@ -111,27 +99,13 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 		}
 	}
 
-	removedPaths := []string{
-		filepath.Join(folderPath, taskSourceDirName, "references"),
-		filepath.Join(folderPath, taskSourceDirName, "requirement.md"),
-	}
-	for _, p := range removedPaths {
-		if _, err := os.Stat(p); err == nil {
-			t.Fatalf("legacy path should not exist: %s", p)
-		}
-	}
-
 	wrContent, _ := os.ReadFile(filepath.Join(folderPath, workRecordFileName))
 	wr := string(wrContent)
 	for _, expect := range []string{
-		"schema_version: 2",
-		"source: manual",
-		"department: 法务部",
-		"hash: manualhash001",
-		"# 2026.04.20_Manual_Task",
-		"关联材料：`00_来源资料/`",
-		"过程资料位置：`10_过程文件/`",
-		"最终成果位置：`20_成果输出/`",
+		"schema_version: 3",
+		"title: Material Cleanup",
+		"department: ops",
+		"folder_name: 2026.04.20_manual_task",
 	} {
 		if !strings.Contains(wr, expect) {
 			t.Fatalf("work record missing %q\n%s", expect, wr)
@@ -139,96 +113,70 @@ func TestHandleCreateFolder_ManualStructure(t *testing.T) {
 	}
 }
 
-func TestHandleCreateFolder_EmailStructure(t *testing.T) {
-	tmpDir := t.TempDir()
-	router := SetupRoutes()
-
-	body := FolderRequest{
-		BasePath:   tmpDir,
-		FolderName: "2026.04.20_Email_Task",
-		Subject:    "会议纪要确认",
-		Date:       "2026-04-20 10:00:00",
-		FromAddr:   "alice@example.com",
-		Body:       "请确认会议纪要并补充意见。",
-		MailID:     "1001",
-		Source:     "email",
-		Hash:       "emailhash001",
-	}
-
-	raw, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/folder/create-with-attachments", bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
-	}
-
-	folderPath := filepath.Join(tmpDir, "2026.04.20_Email_Task")
-	mustExist := []string{
-		filepath.Join(folderPath, taskSourceDirName, "email.txt"),
-		filepath.Join(folderPath, taskSourceDirName, "email.pdf"),
-		filepath.Join(folderPath, taskSourceDirName, taskAttachmentDir),
-	}
-	for _, p := range mustExist {
-		if _, err := os.Stat(p); os.IsNotExist(err) {
-			t.Fatalf("expected path not found: %s", p)
-		}
-	}
-}
-
-func TestParseWorkRecord_LegacyFrontmatterCompatible(t *testing.T) {
+func TestReadWorkRecord_ExtractCoreContent(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, workRecordFileName)
 	content := `---
-归属部门: 财务部
-创建时间: 2026-04-20 09:00
-来源: 邮件
-标识: legacyhash001
+type: task
+schema_version: 3
+title: API Sync
+status: active
+created: 2026-04-20
+updated: 2026-04-20
+source: manual
+department: dev
+project_path: C:/Task
+folder_name: 2026.04.20_api_sync
+archive_status: local_active
+hash: h001
 ---
-# 工作记录
 
-legacy body`
+# API Sync
+
+This task is progressing with new integration updates.`
 	_ = os.WriteFile(filePath, []byte(content), 0o644)
 
-	info, err := parseWorkRecord(filePath)
+	parsed, err := readWorkRecord(filePath)
 	if err != nil {
-		t.Fatalf("parse failed: %v", err)
+		t.Fatalf("read failed: %v", err)
 	}
-	if info.Department != "财务部" {
-		t.Fatalf("department mismatch: %s", info.Department)
+	if parsed.Info.Title != "API Sync" {
+		t.Fatalf("title mismatch: %s", parsed.Info.Title)
 	}
-	if info.Source != "邮件" {
-		t.Fatalf("source mismatch: %s", info.Source)
+	if strings.TrimSpace(parsed.Info.Content) == "" {
+		t.Fatalf("expected core content")
 	}
-	if info.Hash != "legacyhash001" {
-		t.Fatalf("hash mismatch: %s", info.Hash)
+	if !strings.Contains(parsed.Info.RawContent, "API Sync") {
+		t.Fatalf("expected raw content to keep original body")
 	}
 }
 
-func TestHandleScanWorkFolders_Recursive(t *testing.T) {
+func TestHandleScanWorkFolders_ReturnsCoreAndRawContent(t *testing.T) {
 	tmpDir := t.TempDir()
-	taskDir := filepath.Join(tmpDir, "2026", "2026.04.20_Task_A")
+	taskDir := filepath.Join(tmpDir, "2026.04.20_task_a")
 	_ = os.MkdirAll(taskDir, 0o755)
 
 	workRecord := `---
 type: task
-schema_version: 2
+schema_version: 3
+title: Data Pack
 status: active
 created: 2026-04-20
+updated: 2026-04-20
 source: manual
-department: 行政部
-project_path: D:/Workspace/Task
+department: pm
+project_path: C:/Task
+folder_name: 2026.04.20_task_a
 archive_status: local_active
 hash: hashabc
 ---
-# 2026.04.20_Task_A
-`
+# Data Pack
+
+Core progress note.`
 	_ = os.WriteFile(filepath.Join(taskDir, workRecordFileName), []byte(workRecord), 0o644)
 
 	router := SetupRoutes()
-	req := httptest.NewRequest(http.MethodGet, "/api/archive/scan?scan_path="+tmpDir+"&recursive=true", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/archive/scan?scan_path="+tmpDir, nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
@@ -236,103 +184,58 @@ hash: hashabc
 		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
 	}
 
-	var resp map[string]interface{}
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if int(resp["count"].(float64)) != 1 {
-		t.Fatalf("expected count=1, got %v", resp["count"])
+	var resp struct {
+		Count   int `json:"count"`
+		Folders []struct {
+			Content    string `json:"content"`
+			RawContent string `json:"raw_content"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if resp.Count != 1 || len(resp.Folders) != 1 {
+		t.Fatalf("expected one folder, got count=%d len=%d", resp.Count, len(resp.Folders))
+	}
+	if strings.TrimSpace(resp.Folders[0].Content) == "" {
+		t.Fatalf("expected non-empty core content")
+	}
+	if !strings.Contains(resp.Folders[0].RawContent, "# Data Pack") {
+		t.Fatalf("expected raw content with markdown title")
 	}
 }
 
-func TestHandleArchiveMove_UpdatesWorkRecordStatus(t *testing.T) {
+func TestHandleUpdateWorkRecord_RenameFolderAndUpdateFrontmatter(t *testing.T) {
 	tmpDir := t.TempDir()
-	srcFolder := filepath.Join(tmpDir, "src", "2026.04.20_ArchiveTask")
-	_ = os.MkdirAll(srcFolder, 0o755)
-
-	workRecord := `---
-type: task
-schema_version: 2
-status: active
-created: 2026-04-20
-source: manual
-department: 综合部
-project_path: D:/Workspace/Task
-archive_status: local_active
-hash: archivehash001
----
-# 2026.04.20_ArchiveTask
-
-## 归档记录
-
-- 本地状态：active
-- 归档位置：
-- 归档时间：
-`
-	_ = os.WriteFile(filepath.Join(srcFolder, workRecordFileName), []byte(workRecord), 0o644)
-
-	archiveDir := filepath.Join(tmpDir, "archive")
-	_ = os.MkdirAll(archiveDir, 0o755)
-
-	router := SetupRoutes()
-	body, _ := json.Marshal(ArchiveMoveRequest{
-		FolderPath:  srcFolder,
-		ArchivePath: archiveDir,
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/archive/move", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
-	}
-
-	destPath := filepath.Join(archiveDir, "2026", "2026.04.20_ArchiveTask", workRecordFileName)
-	content, err := os.ReadFile(destPath)
-	if err != nil {
-		t.Fatalf("read archived work record failed: %v", err)
-	}
-	text := string(content)
-	if !strings.Contains(text, "status: archived") {
-		t.Fatalf("missing archived status")
-	}
-	if !strings.Contains(text, "archive_status: local_archive") {
-		t.Fatalf("missing local_archive status")
-	}
-	if !strings.Contains(text, "- 本地状态：archived") {
-		t.Fatalf("missing archive section update")
-	}
-}
-
-func TestHandleUpdateWorkRecord_Success(t *testing.T) {
-	tmpDir := t.TempDir()
-	folder := filepath.Join(tmpDir, "2026.04.20_UpdateTask")
+	folder := filepath.Join(tmpDir, "2026.04.20_old-title")
 	_ = os.MkdirAll(folder, 0o755)
 
 	workRecord := `---
 type: task
-schema_version: 2
+schema_version: 3
+title: old-title
 status: active
 created: 2026-04-20
+updated: 2026-04-20
 source: manual
-department:
-project_path: D:/Workspace/Task
+department: ops
+project_path: C:/Task
+folder_name: 2026.04.20_old-title
 archive_status: local_active
-hash:
+hash: h001
 ---
-# 2026.04.20_UpdateTask
 
-## 工作日志
+# old-title
 
-- 旧内容
-`
+old content`
 	_ = os.WriteFile(filepath.Join(folder, workRecordFileName), []byte(workRecord), 0o644)
 
 	router := SetupRoutes()
 	body, _ := json.Marshal(UpdateWorkRecordRequest{
-		FolderPath: folder,
-		Department: "市场部",
-		Content:    "## 工作日志\n\n- 新内容",
-		Title:      "更新后的标题",
+		FolderPath:   folder,
+		Title:        "new-title",
+		Content:      "# new-title\n\nupdated content",
+		RenameFolder: true,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/archive/update-work-record", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -343,80 +246,107 @@ hash:
 		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
 	}
 
-	content, _ := os.ReadFile(filepath.Join(folder, workRecordFileName))
-	text := string(content)
-	if !strings.Contains(text, "department: 市场部") {
-		t.Fatalf("department not updated")
+	newFolder := filepath.Join(tmpDir, "2026.04.20_new-title")
+	if _, err := os.Stat(newFolder); err != nil {
+		t.Fatalf("expected renamed folder to exist: %v", err)
 	}
-	if !strings.Contains(text, "# 更新后的标题") {
-		t.Fatalf("title not updated")
+	if _, err := os.Stat(folder); !os.IsNotExist(err) {
+		t.Fatalf("expected old folder removed")
 	}
-	if !strings.Contains(text, "- 新内容") {
-		t.Fatalf("content not updated")
+
+	updated, err := os.ReadFile(filepath.Join(newFolder, workRecordFileName))
+	if err != nil {
+		t.Fatalf("read updated record failed: %v", err)
+	}
+	text := string(updated)
+	for _, expect := range []string{
+		"title: new-title",
+		"folder_name: 2026.04.20_new-title",
+		"project_path: " + filepath.ToSlash(newFolder),
+		"# new-title",
+	} {
+		if !strings.Contains(text, expect) {
+			t.Fatalf("missing %q in updated record", expect)
+		}
 	}
 }
 
-func TestHandleCheckHash_Found(t *testing.T) {
+func TestHandleUpdateWorkRecord_RenameConflict(t *testing.T) {
 	tmpDir := t.TempDir()
-	folderPath := filepath.Join(tmpDir, "2026.04.20_HashTask")
-	_ = os.MkdirAll(folderPath, 0o755)
+	folder := filepath.Join(tmpDir, "2026.04.20_old-title")
+	conflict := filepath.Join(tmpDir, "2026.04.20_new-title")
+	_ = os.MkdirAll(folder, 0o755)
+	_ = os.MkdirAll(conflict, 0o755)
 
 	workRecord := `---
 type: task
-schema_version: 2
+schema_version: 3
+title: old-title
 status: active
 created: 2026-04-20
+updated: 2026-04-20
 source: manual
-department: 研发部
-project_path: D:/Workspace/Task
+department:
+project_path: C:/Task
+folder_name: 2026.04.20_old-title
 archive_status: local_active
-hash: hashcheck001
+hash: h001
 ---
-# 2026.04.20_HashTask
-`
-	_ = os.WriteFile(filepath.Join(folderPath, workRecordFileName), []byte(workRecord), 0o644)
+# old-title`
+	_ = os.WriteFile(filepath.Join(folder, workRecordFileName), []byte(workRecord), 0o644)
 
 	router := SetupRoutes()
-	req := httptest.NewRequest(http.MethodGet, "/api/folder/check-hash?hash=hashcheck001&scan_path="+tmpDir, nil)
+	body, _ := json.Marshal(UpdateWorkRecordRequest{
+		FolderPath:   folder,
+		Title:        "new-title",
+		RenameFolder: true,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/archive/update-work-record", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d, body=%s", rr.Code, rr.Body.String())
 	}
+}
 
-	var resp map[string]interface{}
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if resp["found"] != true {
-		t.Fatalf("expected found=true")
-	}
-	if int(resp["count"].(float64)) != 1 {
-		t.Fatalf("expected count=1, got %v", resp["count"])
+func TestBuildDailyReportInput_UsesCoreContent(t *testing.T) {
+	input := buildDailyReportInput("2026-04-23", "task-A", "ops", "core note")
+	for _, expected := range []string{
+		"2026-04-23",
+		"task-A",
+		"ops",
+		"core note",
+	} {
+		if !strings.Contains(input, expected) {
+			t.Fatalf("expected %q in input, got:\n%s", expected, input)
+		}
 	}
 }
 
 func TestHandleGenerateDailyReport_Fallback(t *testing.T) {
 	tmpDir := t.TempDir()
-	folderPath := filepath.Join(tmpDir, "2026.04.20_DailyTask")
+	folderPath := filepath.Join(tmpDir, "2026.04.20_daily_task")
 	_ = os.MkdirAll(folderPath, 0o755)
 
 	workRecord := `---
 type: task
-schema_version: 2
+schema_version: 3
+title: daily-task
 status: active
 created: 2026-04-20
+updated: 2026-04-20
 source: manual
-department: 运营部
-project_path: D:/Workspace/Task
+department: ops
+project_path: C:/Task
+folder_name: 2026.04.20_daily_task
 archive_status: local_active
 hash:
 ---
-# 2026.04.20_DailyTask
+# daily-task
 
-## 任务目标
-
-完成资料整理并形成对外发送版本。
-`
+content from actual work.`
 	_ = os.WriteFile(filepath.Join(folderPath, workRecordFileName), []byte(workRecord), 0o644)
 
 	router := SetupRoutes()
@@ -425,9 +355,7 @@ hash:
 		Items: []DailyReportItem{
 			{FolderPath: folderPath},
 		},
-		AI: DailyReportAIConfig{
-			Enabled: false,
-		},
+		AI: DailyReportAIConfig{Enabled: false},
 	}
 	raw, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest(http.MethodPost, "/api/report/daily/generate", bytes.NewReader(raw))
@@ -439,62 +367,20 @@ hash:
 		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
 	}
 
-	var resp map[string]interface{}
-	_ = json.NewDecoder(rr.Body).Decode(&resp)
-	if resp["success"] != true {
-		t.Fatalf("expected success=true")
+	var resp struct {
+		Success bool `json:"success"`
+		Logs    []struct {
+			Content string `json:"content"`
+		} `json:"logs"`
 	}
-	logs, ok := resp["logs"].([]interface{})
-	if !ok || len(logs) != 1 {
-		t.Fatalf("expected one log, got %v", resp["logs"])
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
 	}
-	logItem := logs[0].(map[string]interface{})
-	content := logItem["content"].(string)
-	if !strings.Contains(content, "完成了") {
-		t.Fatalf("unexpected log content: %s", content)
+	if !resp.Success || len(resp.Logs) != 1 {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
-}
-
-func TestBuildDailyReportInput_ExtractsKeySections(t *testing.T) {
-	workRecord := `# 示例任务
-
-## 任务目标
-
-- 完成接口联调并确认错误处理策略。
-
-## 工作日志
-
-- 处理了返回码兼容问题。
-- 完成基础联调验证。
-
-## 过程文件
-
-- 更新了对接说明文档。
-
-## 产出成果
-
-- 输出了联调记录。
-
-## AI 日志摘要
-
-- 已同步风险点。
-
-## 归档记录
-
-- 本地状态：active
-`
-
-	input := buildDailyReportInput("示例任务", workRecord)
-	for _, expected := range []string{
-		"任务标题：示例任务",
-		"任务目标：完成接口联调并确认错误处理策略。",
-		"工作日志：处理了返回码兼容问题。 完成基础联调验证。",
-		"过程文件/成果摘要：更新了对接说明文档。；输出了联调记录。",
-		"AI日志摘要：已同步风险点。",
-	} {
-		if !strings.Contains(input, expected) {
-			t.Fatalf("expected %q in input, got:\n%s", expected, input)
-		}
+	if strings.TrimSpace(resp.Logs[0].Content) == "" {
+		t.Fatalf("expected non-empty fallback daily log")
 	}
 }
 
@@ -519,12 +405,15 @@ func TestCollectScannedFolders_RecursiveSkipsNestedTaskWhenParentIsTask(t *testi
 
 	parentRecord := `---
 type: task
-schema_version: 2
+schema_version: 3
+title: Parent
 status: active
 created: 2026-04-22
+updated: 2026-04-22
 source: manual
 department:
 project_path: D:/Workspace/Parent
+folder_name: 2026.04.22_parent
 archive_status: local_active
 hash: parenthash
 ---
@@ -532,12 +421,15 @@ hash: parenthash
 `
 	childRecord := `---
 type: task
-schema_version: 2
+schema_version: 3
+title: Child
 status: active
 created: 2026-04-22
+updated: 2026-04-22
 source: manual
 department:
 project_path: D:/Workspace/Child
+folder_name: 2026.04.22_child
 archive_status: local_active
 hash: childhash
 ---

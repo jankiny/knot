@@ -368,36 +368,27 @@ func writeManualSourceFiles(folderPath string) error {
 
 func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceType string, now time.Time) string {
 	createdDate := now.Format("2006-01-02")
-	sourceLabel := "手动"
-	initiator := "待补充"
-	if sourceType == "email" {
-		sourceLabel = "邮件"
-		initiator = strings.TrimSpace(req.FromAddr)
-		if initiator == "" {
-			initiator = "邮件发件人"
-		}
+	title := strings.TrimSpace(req.Subject)
+	if title == "" {
+		title = folderName
 	}
 	if strings.TrimSpace(req.Department) == "" {
 		req.Department = ""
 	}
 	hash := strings.TrimSpace(req.Hash)
 	projectPath := filepath.ToSlash(folderPath)
-	sourceDirHint := fmt.Sprintf("`%s/`", taskSourceDirName)
-	processDirHint := fmt.Sprintf("`%s/`", taskProcessDirName)
-	outputDirHint := fmt.Sprintf("`%s/`", taskOutputDirName)
-	goal := strings.TrimSpace(req.Subject)
-	if goal == "" {
-		goal = "请补充任务目标。"
-	}
 
 	return fmt.Sprintf(`---
 type: task
-schema_version: 2
+schema_version: 3
+title: %s
 status: active
 created: %s
+updated: %s
 source: %s
 department: %s
 project_path: %s
+folder_name: %s
 archive_status: local_active
 hash: %s
 tags:
@@ -406,39 +397,22 @@ tags:
 
 # %s
 
-## 任务来源
+## 工作内容
 
-- 来源：%s
-- 发起人：%s
-- 关联材料：%s
+围绕“%s”开展任务资料整理与输出准备工作。
 
-## 任务目标
+## 工作过程
 
-%s
+- %s：创建任务文件夹并完成基础材料归集。
 
-## 工作日志
+## 当前进展
 
-### %s
+已完成任务初始化，正在持续完善过程记录与输出内容。
 
-- 创建任务文件夹。
-- 初步整理来源资料。
+## 下一步
 
-## 过程文件
-
-- 过程资料位置：%s
-
-## 产出成果
-
-- 最终成果位置：%s
-
-## AI 日志摘要
-
-## 归档记录
-
-- 本地状态：active
-- 归档位置：
-- 归档时间：
-`, createdDate, sourceType, req.Department, projectPath, hash, folderName, sourceLabel, initiator, sourceDirHint, goal, createdDate, processDirHint, outputDirHint)
+继续补充过程材料，完成成果文件并放入 20_成果输出。
+`, title, createdDate, createdDate, sourceType, req.Department, projectPath, folderName, hash, title, title, createdDate)
 }
 
 func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
@@ -520,13 +494,16 @@ type WorkRecordInfo struct {
 	Title         string `json:"title"`
 	Department    string `json:"department"`
 	CreateTime    string `json:"create_time"`
+	UpdateTime    string `json:"update_time"`
 	Source        string `json:"source"`
 	Content       string `json:"content"`
+	RawContent    string `json:"raw_content"`
 	Hash          string `json:"hash"`
 	Status        string `json:"status"`
 	ArchiveStatus string `json:"archive_status"`
 	SchemaVersion int    `json:"schema_version"`
 	ProjectPath   string `json:"project_path"`
+	FolderName    string `json:"folder_name"`
 }
 
 type parsedWorkRecord struct {
@@ -599,6 +576,73 @@ func isGenericWorkRecordTitle(title string) bool {
 	}
 }
 
+var folderDatePrefixPattern = regexp.MustCompile(`^(\d{4}[._-]\d{2}[._-]\d{2})([_-]?)(.*)$`)
+
+func fallbackTitleFromFolderName(folderName string) string {
+	name := strings.TrimSpace(folderName)
+	if name == "" {
+		return "未命名任务"
+	}
+
+	matches := folderDatePrefixPattern.FindStringSubmatch(name)
+	if len(matches) == 4 {
+		suffix := strings.TrimSpace(matches[3])
+		if suffix != "" {
+			return suffix
+		}
+	}
+	return name
+}
+
+func stripMarkdownHeaders(body string) string {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = normalizeSectionLine(line)
+		if line != "" {
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func extractWorkCoreContent(body string) string {
+	workContent := truncateRunes(extractSectionContent(body, "## \u5de5\u4f5c\u5185\u5bb9", "## \u4efb\u52a1\u76ee\u6807"), 220)
+	workProcess := truncateRunes(extractSectionContent(body, "## \u5de5\u4f5c\u8fc7\u7a0b", "## \u5de5\u4f5c\u65e5\u5fd7"), 260)
+	progress := truncateRunes(extractSectionContent(body, "## \u5f53\u524d\u8fdb\u5c55"), 180)
+	nextStep := truncateRunes(extractSectionContent(body, "## \u4e0b\u4e00\u6b65", "## \u4ea7\u51fa\u6210\u679c"), 180)
+
+	segments := make([]string, 0, 4)
+	if workContent != "" {
+		segments = append(segments, "\u5de5\u4f5c\u5185\u5bb9\uff1a"+workContent)
+	}
+	if workProcess != "" {
+		segments = append(segments, "\u5de5\u4f5c\u8fc7\u7a0b\uff1a"+workProcess)
+	}
+	if progress != "" {
+		segments = append(segments, "\u5f53\u524d\u8fdb\u5c55\uff1a"+progress)
+	}
+	if nextStep != "" {
+		segments = append(segments, "\u4e0b\u4e00\u6b65\uff1a"+nextStep)
+	}
+
+	if len(segments) == 0 {
+		plain := stripMarkdownHeaders(body)
+		if plain == "" {
+			return ""
+		}
+		return truncateRunes(plain, 260)
+	}
+	return strings.Join(segments, "\n")
+}
+
 func parseTimeLoose(value string) time.Time {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -636,11 +680,11 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 	values := parseFrontmatterValues(frontLines)
 
 	info := &WorkRecordInfo{
-		Title:         extractTitleFromBody(body),
-		Content:       strings.TrimSpace(body),
 		Status:        "active",
 		ArchiveStatus: "local_active",
 		Source:        "manual",
+		SchemaVersion: 2,
+		RawContent:    strings.TrimSpace(body),
 	}
 
 	get := func(keys ...string) string {
@@ -652,13 +696,23 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 		return ""
 	}
 
-	info.Department = get("department", "归属部门", "所属部门")
-	info.CreateTime = get("created", "创建时间")
-	info.Source = get("source", "来源")
-	info.Hash = get("hash", "标识")
+	info.Title = get("title")
+	if info.Title == "" {
+		info.Title = extractTitleFromBody(body)
+	}
+	if strings.TrimSpace(info.Title) == "" {
+		info.Title = fallbackTitleFromFolderName(filepath.Base(filepath.Dir(filePath)))
+	}
+
+	info.Department = get("department")
+	info.CreateTime = get("created")
+	info.UpdateTime = get("updated")
+	info.Source = get("source")
+	info.Hash = get("hash")
 	info.Status = get("status")
-	info.ArchiveStatus = get("archive_status", "archiveStatus", "归档状态")
+	info.ArchiveStatus = get("archive_status", "archiveStatus")
 	info.ProjectPath = get("project_path", "projectPath")
+	info.FolderName = get("folder_name", "folderName")
 
 	schemaValue := get("schema_version")
 	if schemaValue != "" {
@@ -680,6 +734,25 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 			info.ArchiveStatus = "local_active"
 		}
 	}
+	if strings.TrimSpace(info.ProjectPath) == "" {
+		info.ProjectPath = filepath.ToSlash(filepath.Dir(filePath))
+	}
+	if strings.TrimSpace(info.FolderName) == "" {
+		info.FolderName = filepath.Base(filepath.Dir(filePath))
+	}
+	if strings.TrimSpace(info.CreateTime) == "" {
+		if t, err := os.Stat(filePath); err == nil {
+			info.CreateTime = t.ModTime().Format("2006-01-02")
+		}
+	}
+	if strings.TrimSpace(info.UpdateTime) == "" {
+		info.UpdateTime = info.CreateTime
+	}
+
+	info.Content = extractWorkCoreContent(body)
+	if info.Content == "" {
+		info.Content = truncateRunes(cleanDailyLog(body), 220)
+	}
 
 	return &parsedWorkRecord{
 		Info:         info,
@@ -693,36 +766,53 @@ func ensureFrontmatterLines(parsed *parsedWorkRecord, folderPath string) []strin
 	if parsed.HasFrontmatt && len(parsed.FrontLines) > 0 {
 		return append([]string{}, parsed.FrontLines...)
 	}
-	now := time.Now().Format("2006-01-02")
+
 	info := parsed.Info
-	created := info.CreateTime
+	now := time.Now().Format("2006-01-02")
+	created := strings.TrimSpace(info.CreateTime)
 	if created == "" {
 		created = now
 	}
-	source := info.Source
+	updated := strings.TrimSpace(info.UpdateTime)
+	if updated == "" {
+		updated = created
+	}
+	title := strings.TrimSpace(info.Title)
+	if title == "" {
+		title = fallbackTitleFromFolderName(filepath.Base(folderPath))
+	}
+	source := strings.TrimSpace(info.Source)
 	if source == "" {
 		source = "manual"
 	}
-	status := info.Status
+	status := strings.TrimSpace(info.Status)
 	if status == "" {
 		status = "active"
 	}
-	archiveStatus := info.ArchiveStatus
+	archiveStatus := strings.TrimSpace(info.ArchiveStatus)
 	if archiveStatus == "" {
 		archiveStatus = "local_active"
 	}
-	projectPath := info.ProjectPath
+	projectPath := strings.TrimSpace(info.ProjectPath)
 	if projectPath == "" {
 		projectPath = filepath.ToSlash(folderPath)
 	}
+	folderName := strings.TrimSpace(info.FolderName)
+	if folderName == "" {
+		folderName = filepath.Base(folderPath)
+	}
+
 	return []string{
 		"type: task",
-		"schema_version: 2",
+		"schema_version: 3",
+		fmt.Sprintf("title: %s", title),
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("created: %s", created),
+		fmt.Sprintf("updated: %s", updated),
 		fmt.Sprintf("source: %s", source),
 		fmt.Sprintf("department: %s", info.Department),
 		fmt.Sprintf("project_path: %s", projectPath),
+		fmt.Sprintf("folder_name: %s", folderName),
 		fmt.Sprintf("archive_status: %s", archiveStatus),
 		fmt.Sprintf("hash: %s", info.Hash),
 		"tags:",
@@ -812,6 +902,9 @@ func markWorkRecordArchived(workRecordPath string, destination string, archivedA
 	front := ensureFrontmatterLines(parsed, folderPath)
 	front = upsertFrontmatterValue(front, []string{"status"}, "status", "archived")
 	front = upsertFrontmatterValue(front, []string{"archive_status"}, "archive_status", "local_archive")
+	front = upsertFrontmatterValue(front, []string{"updated"}, "updated", archivedAt.Format("2006-01-02"))
+	front = upsertFrontmatterValue(front, []string{"project_path", "projectPath"}, "project_path", filepath.ToSlash(folderPath))
+	front = upsertFrontmatterValue(front, []string{"folder_name", "folderName"}, "folder_name", filepath.Base(folderPath))
 
 	body := appendArchiveInfoSection(parsed.Body, destination, archivedAt)
 	return writeWorkRecordFile(workRecordPath, front, body)
@@ -869,14 +962,17 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 		"has_work_record": true,
 		"department":      info.Department,
 		"create_time":     createTime,
+		"update_time":     info.UpdateTime,
 		"source":          info.Source,
 		"content":         info.Content,
+		"raw_content":     info.RawContent,
 		"file_count":      countFilesRecursively(folderPath),
 		"hash":            info.Hash,
 		"status":          info.Status,
 		"archive_status":  info.ArchiveStatus,
 		"schema_version":  info.SchemaVersion,
 		"project_path":    info.ProjectPath,
+		"folder_name":     info.FolderName,
 		"title":           info.Title,
 	}, true
 }
@@ -1081,10 +1177,11 @@ func handleArchiveBatchMove(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateWorkRecordRequest struct {
-	FolderPath string `json:"folder_path"`
-	Department string `json:"department"`
-	Content    string `json:"content"`
-	Title      string `json:"title"`
+	FolderPath   string `json:"folder_path"`
+	Department   string `json:"department"`
+	Content      string `json:"content"`
+	Title        string `json:"title"`
+	RenameFolder bool   `json:"rename_folder"`
 }
 
 func updateMarkdownTitle(body string, title string) string {
@@ -1109,46 +1206,121 @@ func updateMarkdownTitle(body string, title string) string {
 	return "# " + title + "\n\n" + trimmed + "\n"
 }
 
+func buildRenamedFolderName(oldFolderName, title, created string) (string, error) {
+	titlePart := sanitizeFolderName(title)
+	if strings.TrimSpace(titlePart) == "" {
+		return "", fmt.Errorf("invalid title")
+	}
+
+	if matches := folderDatePrefixPattern.FindStringSubmatch(strings.TrimSpace(oldFolderName)); len(matches) == 4 {
+		sep := matches[2]
+		if sep == "" {
+			sep = "_"
+		}
+		return matches[1] + sep + titlePart, nil
+	}
+
+	prefixTime := parseTimeLoose(created)
+	if prefixTime.IsZero() {
+		prefixTime = time.Now()
+	}
+	return prefixTime.Format("2006.01.02") + "_" + titlePart, nil
+}
+
 func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 	var req UpdateWorkRecordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, "无效的请求参数")
+		jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	wrPath := filepath.Join(req.FolderPath, workRecordFileName)
+	currentFolderPath := filepath.Clean(strings.TrimSpace(req.FolderPath))
+	if currentFolderPath == "" {
+		jsonError(w, http.StatusBadRequest, "folder_path is required")
+		return
+	}
+
+	wrPath := filepath.Join(currentFolderPath, workRecordFileName)
 	if _, err := os.Stat(wrPath); os.IsNotExist(err) {
-		jsonError(w, http.StatusNotFound, "工作记录.md 不存在")
+		jsonError(w, http.StatusNotFound, "work record not found")
 		return
 	}
 
 	parsed, err := readWorkRecord(wrPath)
 	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "解析工作记录失败")
+		jsonError(w, http.StatusInternalServerError, "failed to parse work record")
 		return
-	}
-
-	front := ensureFrontmatterLines(parsed, req.FolderPath)
-	if strings.TrimSpace(req.Department) != "" {
-		front = upsertFrontmatterValue(front, []string{"department", "归属部门", "所属部门"}, "department", strings.TrimSpace(req.Department))
 	}
 
 	body := parsed.Body
 	if strings.TrimSpace(req.Content) != "" {
 		body = strings.TrimSpace(req.Content) + "\n"
 	}
+
+	finalTitle := strings.TrimSpace(req.Title)
+	if finalTitle == "" {
+		finalTitle = strings.TrimSpace(parsed.Info.Title)
+	}
+	if finalTitle == "" {
+		finalTitle = fallbackTitleFromFolderName(filepath.Base(currentFolderPath))
+	}
+
 	if strings.TrimSpace(req.Title) != "" {
 		body = updateMarkdownTitle(body, req.Title)
 	}
 
-	if err := writeWorkRecordFile(wrPath, front, body); err != nil {
-		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("写入失败: %v", err))
+	targetFolderPath := currentFolderPath
+	targetFolderName := filepath.Base(currentFolderPath)
+	renamed := false
+	if req.RenameFolder && strings.TrimSpace(req.Title) != "" {
+		newFolderName, err := buildRenamedFolderName(filepath.Base(currentFolderPath), req.Title, parsed.Info.CreateTime)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if newFolderName != filepath.Base(currentFolderPath) {
+			targetFolderPath = filepath.Join(filepath.Dir(currentFolderPath), newFolderName)
+			if _, err := os.Stat(targetFolderPath); err == nil {
+				jsonError(w, http.StatusConflict, fmt.Sprintf("destination already exists: %s", targetFolderPath))
+				return
+			}
+			if err := os.Rename(currentFolderPath, targetFolderPath); err != nil {
+				jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to rename folder: %v", err))
+				return
+			}
+			renamed = true
+			targetFolderName = newFolderName
+		}
+	}
+
+	front := ensureFrontmatterLines(parsed, targetFolderPath)
+	if strings.TrimSpace(req.Department) != "" {
+		front = upsertFrontmatterValue(front, []string{"department"}, "department", strings.TrimSpace(req.Department))
+	}
+	front = upsertFrontmatterValue(front, []string{"schema_version"}, "schema_version", "3")
+	front = upsertFrontmatterValue(front, []string{"title"}, "title", finalTitle)
+	front = upsertFrontmatterValue(front, []string{"updated"}, "updated", time.Now().Format("2006-01-02"))
+	front = upsertFrontmatterValue(front, []string{"project_path", "projectPath"}, "project_path", filepath.ToSlash(targetFolderPath))
+	front = upsertFrontmatterValue(front, []string{"folder_name", "folderName"}, "folder_name", targetFolderName)
+
+	targetWrPath := filepath.Join(targetFolderPath, workRecordFileName)
+	if err := writeWorkRecordFile(targetWrPath, front, body); err != nil {
+		if renamed {
+			_ = os.Rename(targetFolderPath, currentFolderPath)
+		}
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("failed to write work record: %v", err))
 		return
 	}
 
+	coreContent := extractWorkCoreContent(body)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "工作记录已更新",
+		"success":      true,
+		"message":      "work record updated",
+		"path":         targetFolderPath,
+		"name":         targetFolderName,
+		"title":        finalTitle,
+		"content":      strings.TrimSpace(body),
+		"core_content": coreContent,
 	})
 }
 
@@ -1242,14 +1414,14 @@ type DailyReportLog struct {
 	Content    string `json:"content"`
 }
 
-const dailyReportSystemPrompt = `你是企业办公日报助手。请根据输入的任务工作记录，输出一条可直接粘贴到日报中的中文内容。
-
-要求：
-1. 只输出一条内容，不输出标题、序号、解释或引号。
-2. 字数控制在 50 到 100 字。
-3. 采用“完成了……，推进了……，下一步……”的办公表达。
-4. 只能依据输入内容，不编造数字、人名、会议、成果或结论。
-5. 当信息不足时，使用保守描述，避免夸大。`
+const dailyReportSystemPrompt = `You are an office work-log assistant.
+Generate one natural, concise, formal Chinese daily log sentence from the provided real material.
+Requirements:
+1. Output only one paragraph without title or bullet points.
+2. Keep it between 40 and 100 Chinese characters.
+3. Focus on actual progress today, current status, and next step.
+4. Do not fabricate people, meetings, numbers, or outcomes.
+5. If information is limited, use conservative wording.`
 
 func normalizeAIEndpoint(apiURL string) string {
 	apiURL = strings.TrimSpace(apiURL)
@@ -1266,7 +1438,7 @@ func normalizeAIEndpoint(apiURL string) string {
 	return apiURL + "/v1/chat/completions"
 }
 
-var dailyLogPrefixPattern = regexp.MustCompile(`^(?:[-*+]\s*|[0-9]+[.)、]\s*)+`)
+var dailyLogPrefixPattern = regexp.MustCompile(`^(?:[-*+]\s*|[0-9]+[.)]\s*)+`)
 
 func cleanDailyLog(log string) string {
 	log = strings.TrimSpace(strings.ReplaceAll(log, "\r\n", "\n"))
@@ -1344,76 +1516,46 @@ func extractSectionContent(body string, headers ...string) string {
 	return strings.Join(collected, " ")
 }
 
-func buildDailyReportInput(title, workRecord string) string {
+func buildDailyReportInput(date, title, department, coreContent string) string {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "未命名任务"
+		title = "\u672a\u547d\u540d\u4efb\u52a1"
+	}
+	department = strings.TrimSpace(department)
+	if department == "" {
+		department = "\u672a\u6307\u5b9a"
+	}
+	coreContent = strings.TrimSpace(coreContent)
+	if coreContent == "" {
+		coreContent = "\u6682\u65e0\u53ef\u63d0\u53d6\u7684\u5de5\u4f5c\u6838\u5fc3\u5185\u5bb9"
 	}
 
-	goal := truncateRunes(extractSectionContent(workRecord, "## 任务目标"), 220)
-	workLog := truncateRunes(extractSectionContent(workRecord, "## 工作日志"), 320)
-	processFiles := truncateRunes(extractSectionContent(workRecord, "## 过程文件"), 200)
-	outputSummary := truncateRunes(extractSectionContent(workRecord, "## 产出成果"), 200)
-	aiSummary := truncateRunes(extractSectionContent(workRecord, "## AI 日志摘要", "## AI日志摘要"), 180)
-
-	processOutput := strings.TrimSpace(strings.Join([]string{
-		strings.TrimSpace(processFiles),
-		strings.TrimSpace(outputSummary),
-	}, "；"))
-	processOutput = strings.Trim(processOutput, "； ")
-
-	if goal == "" {
-		goal = "未记录"
-	}
-	if workLog == "" {
-		workLog = truncateRunes(cleanDailyLog(workRecord), 220)
-		if workLog == "" {
-			workLog = "未记录"
-		}
-	}
-	if processOutput == "" {
-		processOutput = "未记录"
-	}
-	if aiSummary == "" {
-		aiSummary = "未记录"
-	}
-
-	return fmt.Sprintf(
-		"任务标题：%s\n任务目标：%s\n工作日志：%s\n过程文件/成果摘要：%s\nAI日志摘要：%s",
-		title,
-		goal,
-		workLog,
-		processOutput,
-		aiSummary,
-	)
+	return fmt.Sprintf("\u65e5\u671f\uff1a%s\n\u4efb\u52a1\u6807\u9898\uff1a%s\n\u6240\u5c5e\u90e8\u95e8\uff1a%s\n\n\u5de5\u4f5c\u6838\u5fc3\u5185\u5bb9\uff1a\n%s", date, title, department, coreContent)
 }
 
-func fallbackDailyLog(title, workRecord string) string {
-	goal := extractSectionContent(workRecord, "## 任务目标")
-	if goal == "" {
-		goal = extractSectionContent(workRecord, "## 工作日志")
-	}
+func fallbackDailyLog(title, coreContent string) string {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "当前任务"
-	}
-	if goal == "" {
-		goal = title
+		title = "\u672a\u547d\u540d\u4efb\u52a1"
 	}
 
-	title = truncateRunes(title, 22)
-	goal = truncateRunes(goal, 36)
-	log := fmt.Sprintf("完成了%s相关材料整理，推进了%s，下一步将继续完善并归集到%s。", title, goal, taskOutputDirName)
-	return truncateRunes(log, 120)
+	coreContent = cleanDailyLog(coreContent)
+	if coreContent == "" {
+		return truncateRunes(fmt.Sprintf("\u4eca\u65e5\u6301\u7eed\u63a8\u8fdb\u300a%s\u300b\u76f8\u5173\u5de5\u4f5c\uff0c\u5df2\u5b8c\u6210\u57fa\u7840\u68b3\u7406\uff0c\u4e0b\u4e00\u6b65\u7ee7\u7eed\u5b8c\u5584\u5e76\u5f62\u6210\u6210\u679c\u8f93\u51fa\u3002", title), 120)
+	}
+
+	compressed := truncateRunes(coreContent, 70)
+	content := fmt.Sprintf("\u4eca\u65e5\u56f4\u7ed5\u300a%s\u300b\u63a8\u8fdb\uff1a%s\u3002\u540e\u7eed\u5c06\u7ee7\u7eed\u5b8c\u5584\u5e76\u5f62\u6210\u6210\u679c\u8f93\u51fa\u3002", truncateRunes(title, 20), compressed)
+	return truncateRunes(content, 120)
 }
 
-func generateDailyLogWithAI(cfg DailyReportAIConfig, date, reportInput string) (string, error) {
+func generateDailyLogWithAI(cfg DailyReportAIConfig, reportInput string) (string, error) {
 	endpoint := normalizeAIEndpoint(cfg.APIURL)
 	if endpoint == "" {
 		return "", fmt.Errorf("empty api endpoint")
 	}
 
-	userPrompt := fmt.Sprintf("日期：%s\n%s", date, reportInput)
+	userPrompt := reportInput
 	payload := map[string]interface{}{
 		"model": cfg.Model,
 		"messages": []map[string]string{
@@ -1478,12 +1620,12 @@ func generateDailyLogWithAI(cfg DailyReportAIConfig, date, reportInput string) (
 func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 	var req DailyReportGenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, "无效的请求参数")
+		jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if len(req.Items) == 0 {
-		jsonError(w, http.StatusBadRequest, "items 不能为空")
+		jsonError(w, http.StatusBadRequest, "items cannot be empty")
 		return
 	}
 
@@ -1499,33 +1641,46 @@ func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 
 	logs := make([]DailyReportLog, 0, len(req.Items))
 	for _, item := range req.Items {
-		workRecord := strings.TrimSpace(item.WorkRecord)
-		title := filepath.Base(item.FolderPath)
+		title := fallbackTitleFromFolderName(filepath.Base(item.FolderPath))
+		department := ""
+		coreContent := ""
 
-		if workRecord == "" && strings.TrimSpace(item.FolderPath) != "" {
+		if strings.TrimSpace(item.WorkRecord) != "" {
+			providedBody := strings.TrimSpace(item.WorkRecord)
+			coreContent = extractWorkCoreContent(providedBody)
+			if bodyTitle := strings.TrimSpace(extractTitleFromBody(providedBody)); bodyTitle != "" {
+				title = bodyTitle
+			}
+		}
+
+		if strings.TrimSpace(item.FolderPath) != "" {
 			wrPath := filepath.Join(item.FolderPath, workRecordFileName)
 			if parsed, err := readWorkRecord(wrPath); err == nil {
-				workRecord = parsed.Body
 				if strings.TrimSpace(parsed.Info.Title) != "" {
 					title = parsed.Info.Title
+				}
+				department = strings.TrimSpace(parsed.Info.Department)
+				if coreContent == "" {
+					coreContent = strings.TrimSpace(parsed.Info.Content)
 				}
 			}
 		}
 
-		if strings.TrimSpace(workRecord) == "" {
-			workRecord = fmt.Sprintf("任务标题：%s", title)
+		if coreContent == "" {
+			coreContent = truncateRunes(cleanDailyLog(item.WorkRecord), 220)
 		}
 
-		reportInput := buildDailyReportInput(title, workRecord)
-		content := fallbackDailyLog(title, workRecord)
+		reportInput := buildDailyReportInput(reportDate, title, department, coreContent)
+		content := fallbackDailyLog(title, coreContent)
 		if aiEnabled {
-			if generated, err := generateDailyLogWithAI(req.AI, reportDate, reportInput); err == nil {
+			if generated, err := generateDailyLogWithAI(req.AI, reportInput); err == nil {
 				content = generated
 			}
 		}
+
 		content = truncateRunes(cleanDailyLog(content), 160)
 		if content == "" {
-			content = fallbackDailyLog(title, workRecord)
+			content = fallbackDailyLog(title, coreContent)
 		}
 
 		logs = append(logs, DailyReportLog{

@@ -212,7 +212,7 @@ function AutoArchive() {
   const handleViewContent = (folder) => {
     setContentFolder(folder)
     setEditTitle(getDisplayTitle(folder) || '')
-    setEditContent(folder.content || '')
+    setEditContent(folder.raw_content || folder.content || '')
     setContentVisible(true)
   }
 
@@ -220,16 +220,39 @@ function AutoArchive() {
     if (!contentFolder) return
 
     try {
-      await archiveApi.updateWorkRecord(contentFolder.path, {
+      const result = await archiveApi.updateWorkRecord(contentFolder.path, {
         content: editContent,
-        title: editTitle
+        title: editTitle,
+        rename_folder: true
       })
       message.success('工作记录已更新')
+
+      const nextPath = result?.path || contentFolder.path
+      const nextName = result?.name || contentFolder.name
+      const nextTitle = result?.title || editTitle || contentFolder.title
+      const nextCoreContent = result?.core_content || contentFolder.content
+      const nextRawContent = result?.content || editContent
+
       setFolders((prev) => prev.map((f) => (
         f.path === contentFolder.path
-          ? { ...f, content: editContent, title: editTitle || f.title }
+          ? {
+              ...f,
+              path: nextPath,
+              name: nextName,
+              title: nextTitle,
+              content: nextCoreContent,
+              raw_content: nextRawContent
+            }
           : f
       )))
+      setContentFolder((prev) => (prev ? {
+        ...prev,
+        path: nextPath,
+        name: nextName,
+        title: nextTitle,
+        content: nextCoreContent,
+        raw_content: nextRawContent
+      } : prev))
       setContentVisible(false)
       setContentFolder(null)
     } catch (error) {

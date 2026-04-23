@@ -119,13 +119,15 @@ export const archiveApi = {
           folder_path: folderPath,
           department: departmentOrPayload.department || '',
           content: departmentOrPayload.content || '',
-          title: departmentOrPayload.title || ''
+          title: departmentOrPayload.title || '',
+          rename_folder: !!(departmentOrPayload.rename_folder || departmentOrPayload.renameFolder)
         }
       : {
           folder_path: folderPath,
           department: departmentOrPayload || '',
           content: content || '',
-          title: title || ''
+          title: title || '',
+          rename_folder: false
         }
 
     const response = await axios.post(`${API_BASE}/archive/update-work-record`, payload)
