@@ -98,10 +98,11 @@ export const archiveApi = {
   },
 
   // 移动单个文件夹到归档目录
-  move: async (folderPath, archivePath) => {
+  move: async (folderPath, archivePath, useYearFolder = true) => {
     const response = await axios.post(`${API_BASE}/archive/move`, {
       folder_path: folderPath,
-      archive_path: archivePath
+      archive_path: archivePath,
+      use_year_folder: useYearFolder
     })
     return response.data
   },
@@ -118,14 +119,16 @@ export const archiveApi = {
       ? {
           folder_path: folderPath,
           department: departmentOrPayload.department || '',
+          project: departmentOrPayload.project || '',
           content: departmentOrPayload.content || '',
           title: departmentOrPayload.title || '',
           rename_folder: !!(departmentOrPayload.rename_folder || departmentOrPayload.renameFolder)
         }
       : {
-          folder_path: folderPath,
-          department: departmentOrPayload || '',
-          content: content || '',
+        folder_path: folderPath,
+        department: departmentOrPayload || '',
+        project: '',
+        content: content || '',
           title: title || '',
           rename_folder: false
         }

@@ -30,6 +30,50 @@ func TestGetBaseFolder_TildePath(t *testing.T) {
 	_ = os.RemoveAll(expected)
 }
 
+func TestDoArchiveMove_WithYearFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "2026.04.20_task")
+	archiveRoot := filepath.Join(tmpDir, "archive")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dest, err := doArchiveMove(source, archiveRoot, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := filepath.Join(archiveRoot, "2026", "2026.04.20_task")
+	if dest != expected {
+		t.Fatalf("expected %s, got %s", expected, dest)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected destination to exist: %v", err)
+	}
+}
+
+func TestDoArchiveMove_WithoutYearFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "2026.04.20_task")
+	archiveRoot := filepath.Join(tmpDir, "archive")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dest, err := doArchiveMove(source, archiveRoot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := filepath.Join(archiveRoot, "2026.04.20_task")
+	if dest != expected {
+		t.Fatalf("expected %s, got %s", expected, dest)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected destination to exist: %v", err)
+	}
+}
+
 func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 	router := SetupRoutes()
 	endpoints := []struct {

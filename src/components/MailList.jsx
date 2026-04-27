@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { List, Card, Button, Tag, Collapse, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
 import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
 import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
-import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments } from '../services/settings'
+import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments, getProjects } from '../services/settings'
 import { readMailCache, saveMailCache } from '../services/mailCache'
 import DepartmentSelectModal from './DepartmentSelectModal'
 import './MailList.css'
@@ -189,12 +189,14 @@ function MailList() {
         })
       }
 
-      // 扫描各部门归档目录
+      // 扫描各归档目录
       const departments = getDepartments()
-      for (const dept of departments) {
-        if (dept.archivePath) {
+      const projects = getProjects()
+      const archiveTargets = [...departments, ...projects]
+      for (const target of archiveTargets) {
+        if (target.archivePath) {
           try {
-            const archiveResult = await archiveApi.scan(dept.archivePath, true)
+            const archiveResult = await archiveApi.scan(target.archivePath, true)
             if (archiveResult.success && archiveResult.folders) {
               archiveResult.folders.forEach(f => {
                 if (f.hash) hashMap[f.hash] = 'archived'
@@ -332,7 +334,8 @@ function MailList() {
       const mailHash = await generateMailHash(mail)
       const settings = getSettings()
       const departments = getDepartments()
-      const archivePaths = departments.map(d => d.archivePath).filter(Boolean)
+      const projects = getProjects()
+      const archivePaths = [...departments, ...projects].map(item => item.archivePath).filter(Boolean)
 
       const checkResult = await folderApi.checkHash(
         mailHash,
@@ -389,17 +392,17 @@ function MailList() {
     setDeptModalOpen(true)
   }
 
-  // 确认选择部门后创建文件夹
-  const handleDeptConfirm = async (department) => {
+  // 确认选择归属后创建文件夹
+  const handleDeptConfirm = async (target) => {
     setDeptModalOpen(false)
     if (selectedMailForFolder) {
-      await handleCreateFolder(selectedMailForFolder, department)
+      await handleCreateFolder(selectedMailForFolder, target)
     }
     setSelectedMailForFolder(null)
   }
 
   // 创建文件夹（始终包含附件下载）
-  const handleCreateFolder = async (mail, department = null) => {
+  const handleCreateFolder = async (mail, target = null) => {
     setCreating(prev => ({ ...prev, [mail.id]: true }))
     try {
       // 如果邮件没有正文，先加载详情
@@ -438,8 +441,9 @@ function MailList() {
         save_formats: settings.saveFormats || ['txt'],
         raw_content: mailData.raw_content || '',
         attachments: mailData.attachments || [],
-        // 部门信息
-        department: department ? department.name : null,
+        // 归属信息
+        department: target?.type === 'department' ? target.name : null,
+        project: target?.type === 'project' ? target.name : null,
         source: '邮件',
         hash: mailHash
       }

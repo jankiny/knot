@@ -99,7 +99,7 @@ function App() {
       case 'settings':
         return '设置'
       default:
-        return 'Knot 绳结'
+        return 'Knot'
     }
   }
 
@@ -108,7 +108,7 @@ function App() {
       <Layout className="app-layout">
         <Sider trigger={null} collapsible collapsed={collapsed} theme="light" className="app-sider">
           <div className="logo-container">
-            <div className="logo-text">{collapsed ? 'Knot' : 'Knot 绳结'}</div>
+            <div className="logo-text">Knot</div>
           </div>
           <Menu
             theme="light"

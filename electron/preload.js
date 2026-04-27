@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 获取版本号
   version: appVersion,
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
   // 获取桌面路径
   getDesktopPath: () => {

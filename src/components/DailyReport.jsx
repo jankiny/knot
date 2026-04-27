@@ -3,7 +3,7 @@ import { Button, Card, Checkbox, DatePicker, Empty, Input, List, message, Space,
 import { CopyOutlined, FolderOpenOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { archiveApi, reportApi } from '../services/api'
-import { getDepartments, getSettings } from '../services/settings'
+import { getDepartments, getProjects, getSettings } from '../services/settings'
 import { normalizePathKey, optimizeRecursiveScanDirectories } from '../services/path'
 import './DailyReport.css'
 
@@ -34,6 +34,17 @@ function buildDefaultDirectories() {
     })
   })
 
+  getProjects().forEach((project) => {
+    if (!project.archivePath) return
+    list.push({
+      id: `project-${project.id}`,
+      label: `${project.name}归档目录`,
+      path: project.archivePath,
+      checked: false,
+      builtin: true
+    })
+  })
+
   const dedup = new Map()
   list.forEach((item) => {
     const key = normalizePathKey(item.path)
@@ -59,7 +70,7 @@ function DailyReport() {
     const keyword = searchText.trim().toLowerCase()
     if (!keyword) return folders
     return folders.filter((folder) => {
-      const text = `${folder.title || ''} ${folder.name || ''} ${folder.path || ''} ${folder.department || ''}`.toLowerCase()
+      const text = `${folder.title || ''} ${folder.name || ''} ${folder.path || ''} ${folder.department || ''} ${folder.project || ''}`.toLowerCase()
       return text.includes(keyword)
     })
   }, [folders, searchText])
@@ -283,7 +294,7 @@ function DailyReport() {
           <Input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜索任务名称 / 路径 / 部门"
+            placeholder="搜索任务名称 / 路径 / 归属"
             allowClear
           />
           <Space>
@@ -307,7 +318,8 @@ function DailyReport() {
                     <span className="task-title">{folder.title || folder.name}</span>
                   </Checkbox>
                   <div className="task-meta">
-                    {folder.department && <Tag>{folder.department}</Tag>}
+                    {folder.department && <Tag color="blue">{folder.department}</Tag>}
+                    {folder.project && <Tag color="purple">{folder.project}</Tag>}
                     {folder.create_time && <Tag>{folder.create_time}</Tag>}
                     {(folder.fromDirectories || []).map((dirName) => (
                       <Tag key={`${folder.path}-${dirName}`} color="blue">{dirName}</Tag>

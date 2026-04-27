@@ -1,0 +1,67 @@
+.about-page {
+  min-height: calc(100vh - 180px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.about-panel {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.about-logo {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  margin-bottom: 16px;
+}
+
+.about-panel h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.about-version {
+  display: block;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.about-update-button {
+  min-width: 180px;
+  margin-top: 28px;
+  box-shadow: 0 8px 18px rgba(22, 119, 255, 0.24);
+}
+
+.about-actions {
+  margin-top: 16px;
+}
+
+.about-actions .ant-btn {
+  background: #f7f8fa;
+  border-color: #edf0f3;
+  color: #374151;
+}
+
+.about-copyright {
+  margin-top: 44px;
+  color: #8c8c8c;
+  font-size: 13px;
+}
+
+.about-email {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #1677ff;
+  font-family: monospace;
+}

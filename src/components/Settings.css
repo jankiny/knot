@@ -32,6 +32,8 @@
   color: #262626;
   vertical-align: middle;
   cursor: help;
+  display: inline-flex;
+  align-items: center;
 }
 
 .setting-item.inline {

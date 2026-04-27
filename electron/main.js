@@ -46,7 +46,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     icon: path.join(__dirname, 'assets/icons/512x512.png'),
-    title: 'Knot 绳结'
+    title: 'Knot'
   })
 
   // 开发模式加载 Vite 开发服务器
@@ -186,6 +186,17 @@ if (!gotTheLock) {
         return error === ''
       } catch (err) {
         console.error('打开目录失败:', err)
+        return false
+      }
+    })
+
+    ipcMain.handle('open-external', async (event, url) => {
+      if (!url || !/^https?:\/\//i.test(url)) return false
+      try {
+        await shell.openExternal(url)
+        return true
+      } catch (err) {
+        console.error('打开外部链接失败:', err)
         return false
       }
     })

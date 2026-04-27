@@ -188,6 +188,7 @@ type FolderRequest struct {
 	SaveFormats         []string                 `json:"save_formats"`
 	RawContent          string                   `json:"raw_content"`
 	Department          string                   `json:"department"`
+	Project             string                   `json:"project"`
 	Source              string                   `json:"source"`
 	Hash                string                   `json:"hash"`
 }
@@ -375,6 +376,9 @@ func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceTy
 	if strings.TrimSpace(req.Department) == "" {
 		req.Department = ""
 	}
+	if strings.TrimSpace(req.Project) == "" {
+		req.Project = ""
+	}
 	hash := strings.TrimSpace(req.Hash)
 	projectPath := filepath.ToSlash(folderPath)
 
@@ -387,6 +391,7 @@ created: %s
 updated: %s
 source: %s
 department: %s
+project: %s
 project_path: %s
 folder_name: %s
 archive_status: local_active
@@ -412,7 +417,7 @@ tags:
 ## 下一步
 
 继续补充过程材料，完成成果文件并放入 20_成果输出。
-`, title, createdDate, createdDate, sourceType, req.Department, projectPath, folderName, hash, title, title, createdDate)
+`, title, createdDate, createdDate, sourceType, req.Department, req.Project, projectPath, folderName, hash, title, title, createdDate)
 }
 
 func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
@@ -493,6 +498,7 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 type WorkRecordInfo struct {
 	Title         string `json:"title"`
 	Department    string `json:"department"`
+	Project       string `json:"project"`
 	CreateTime    string `json:"create_time"`
 	UpdateTime    string `json:"update_time"`
 	Source        string `json:"source"`
@@ -705,6 +711,7 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 	}
 
 	info.Department = get("department")
+	info.Project = get("project")
 	info.CreateTime = get("created")
 	info.UpdateTime = get("updated")
 	info.Source = get("source")
@@ -811,6 +818,7 @@ func ensureFrontmatterLines(parsed *parsedWorkRecord, folderPath string) []strin
 		fmt.Sprintf("updated: %s", updated),
 		fmt.Sprintf("source: %s", source),
 		fmt.Sprintf("department: %s", info.Department),
+		fmt.Sprintf("project: %s", info.Project),
 		fmt.Sprintf("project_path: %s", projectPath),
 		fmt.Sprintf("folder_name: %s", folderName),
 		fmt.Sprintf("archive_status: %s", archiveStatus),
@@ -961,6 +969,7 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 		"modified":        modified,
 		"has_work_record": true,
 		"department":      info.Department,
+		"project":         info.Project,
 		"create_time":     createTime,
 		"update_time":     info.UpdateTime,
 		"source":          info.Source,
@@ -1072,11 +1081,12 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 }
 
 type ArchiveMoveRequest struct {
-	FolderPath  string `json:"folder_path"`
-	ArchivePath string `json:"archive_path"`
+	FolderPath     string `json:"folder_path"`
+	ArchivePath    string `json:"archive_path"`
+	UseYearFolder *bool  `json:"use_year_folder"`
 }
 
-func doArchiveMove(folderPath, archivePath string) (string, error) {
+func doArchiveMove(folderPath, archivePath string, useYearFolder bool) (string, error) {
 	archivePath = getBaseFolder(archivePath)
 	folderPath = filepath.Clean(folderPath)
 	folderName := filepath.Base(folderPath)
@@ -1088,7 +1098,10 @@ func doArchiveMove(folderPath, archivePath string) (string, error) {
 		}
 	}
 
-	destDir := filepath.Join(archivePath, year)
+	destDir := archivePath
+	if useYearFolder {
+		destDir = filepath.Join(archivePath, year)
+	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
 	}
@@ -1117,7 +1130,12 @@ func handleArchiveMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	destPath, err := doArchiveMove(req.FolderPath, req.ArchivePath)
+	useYearFolder := true
+	if req.UseYearFolder != nil {
+		useYearFolder = *req.UseYearFolder
+	}
+
+	destPath, err := doArchiveMove(req.FolderPath, req.ArchivePath, useYearFolder)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1147,7 +1165,11 @@ func handleArchiveBatchMove(w http.ResponseWriter, r *http.Request) {
 	failCount := 0
 
 	for _, item := range req.Items {
-		destPath, err := doArchiveMove(item.FolderPath, item.ArchivePath)
+		useYearFolder := true
+		if item.UseYearFolder != nil {
+			useYearFolder = *item.UseYearFolder
+		}
+		destPath, err := doArchiveMove(item.FolderPath, item.ArchivePath, useYearFolder)
 		if err != nil {
 			failCount++
 			results = append(results, map[string]interface{}{
@@ -1179,6 +1201,7 @@ func handleArchiveBatchMove(w http.ResponseWriter, r *http.Request) {
 type UpdateWorkRecordRequest struct {
 	FolderPath   string `json:"folder_path"`
 	Department   string `json:"department"`
+	Project      string `json:"project"`
 	Content      string `json:"content"`
 	Title        string `json:"title"`
 	RenameFolder bool   `json:"rename_folder"`
@@ -1296,6 +1319,11 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 	front := ensureFrontmatterLines(parsed, targetFolderPath)
 	if strings.TrimSpace(req.Department) != "" {
 		front = upsertFrontmatterValue(front, []string{"department"}, "department", strings.TrimSpace(req.Department))
+		front = upsertFrontmatterValue(front, []string{"project"}, "project", "")
+	}
+	if strings.TrimSpace(req.Project) != "" {
+		front = upsertFrontmatterValue(front, []string{"project"}, "project", strings.TrimSpace(req.Project))
+		front = upsertFrontmatterValue(front, []string{"department"}, "department", "")
 	}
 	front = upsertFrontmatterValue(front, []string{"schema_version"}, "schema_version", "3")
 	front = upsertFrontmatterValue(front, []string{"title"}, "title", finalTitle)
@@ -1347,6 +1375,7 @@ func scanDirForHash(dirPath, hash, status string) []map[string]interface{} {
 			"name":       folder["name"],
 			"path":       folder["path"],
 			"department": folder["department"],
+			"project":    folder["project"],
 			"source":     folder["source"],
 			"status":     status,
 		})

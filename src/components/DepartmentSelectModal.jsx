@@ -1,43 +1,72 @@
-import { useState, useEffect } from 'react'
-import { Modal, Select, Empty, Button, message } from 'antd'
-import { getDepartments, getDefaultDepartment } from '../services/settings'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Empty, Modal, Select, Tag, message } from 'antd'
+import {
+  getDefaultDepartment,
+  getDefaultProject,
+  getDepartments,
+  getProjects
+} from '../services/settings'
 import './DepartmentSelectModal.css'
 
 function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, description }) {
-  const [departments, setDepartments] = useState([])
-  const [selectedDeptId, setSelectedDeptId] = useState(null)
+  const [targets, setTargets] = useState([])
+  const [selectedTargetId, setSelectedTargetId] = useState(null)
 
   useEffect(() => {
     if (open) {
-      const depts = getDepartments()
-      setDepartments(depts)
-      // 默认选中默认部门
+      const depts = getDepartments().map((item) => ({
+        ...item,
+        type: 'department',
+        key: `department:${item.id}`,
+        typeLabel: '部门'
+      }))
+      const projects = getProjects().map((item) => ({
+        ...item,
+        type: 'project',
+        key: `project:${item.id}`,
+        typeLabel: '项目'
+      }))
+      const nextTargets = [...depts, ...projects]
+      setTargets(nextTargets)
+
       const defaultDept = getDefaultDepartment()
+      const defaultProject = getDefaultProject()
       if (defaultDept) {
-        setSelectedDeptId(defaultDept.id)
-      } else if (depts.length > 0) {
-        setSelectedDeptId(depts[0].id)
+        setSelectedTargetId(`department:${defaultDept.id}`)
+      } else if (defaultProject) {
+        setSelectedTargetId(`project:${defaultProject.id}`)
+      } else if (nextTargets.length > 0) {
+        setSelectedTargetId(nextTargets[0].key)
+      } else {
+        setSelectedTargetId(null)
       }
     }
   }, [open])
 
+  const options = useMemo(() => targets.map((target) => ({
+    label: target.name,
+    value: target.key,
+    desc: target.archivePath,
+    type: target.type,
+    typeLabel: target.typeLabel
+  })), [targets])
+
   const handleConfirm = () => {
-    if (!selectedDeptId) {
-      message.warning('请选择部门')
+    if (!selectedTargetId) {
+      message.warning('请选择归属')
       return
     }
-    const selectedDept = departments.find(d => d.id === selectedDeptId)
-    onConfirm(selectedDept)
+    const selectedTarget = targets.find((target) => target.key === selectedTargetId)
+    onConfirm(selectedTarget || null)
   }
 
   const handleSkip = () => {
-    // 暂不填写归属部门，仍会生成工作记录.md（部门留空）
     onConfirm(null)
   }
 
   return (
     <Modal
-      title={title || "选择归属部门"}
+      title={title || '选择归属'}
       open={open}
       onCancel={onCancel}
       footer={[
@@ -47,7 +76,7 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
         <Button key="skip" onClick={handleSkip}>
           暂不填写
         </Button>,
-        <Button key="confirm" type="primary" onClick={handleConfirm} disabled={departments.length === 0}>
+        <Button key="confirm" type="primary" onClick={handleConfirm} disabled={targets.length === 0}>
           确定
         </Button>
       ]}
@@ -70,33 +99,45 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
           </div>
         )}
 
-        {departments.length === 0 ? (
+        {targets.length === 0 ? (
           <Empty
-            description="暂无部门，请先在设置中添加部门"
+            description="暂无部门或项目，请先在设置中添加归档目标"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (
           <div className="dept-select-area">
-            <label className="select-label">选择部门：</label>
             <Select
               style={{ width: '100%' }}
-              placeholder="请选择部门"
-              value={selectedDeptId}
-              onChange={setSelectedDeptId}
-              options={departments.map(d => ({
-                label: d.name,
-                value: d.id,
-                desc: d.archivePath
-              }))}
+              placeholder="请选择归属"
+              value={selectedTargetId}
+              onChange={setSelectedTargetId}
+              options={options}
               optionRender={(option) => (
                 <div className="dept-option">
-                  <span className="dept-option-name">{option.data.label}</span>
+                  <span className="dept-option-main">
+                    <span className="dept-option-name">{option.data.label}</span>
+                    <Tag color={option.data.type === 'project' ? 'purple' : 'blue'}>
+                      {option.data.typeLabel}
+                    </Tag>
+                  </span>
                   <span className="dept-option-path">{option.data.desc}</span>
                 </div>
               )}
+              labelRender={(props) => {
+                const target = options.find((option) => option.value === props.value)
+                if (!target) return props.label
+                return (
+                  <span className="dept-select-label">
+                    <span>{target.label}</span>
+                    <Tag color={target.type === 'project' ? 'purple' : 'blue'}>
+                      {target.typeLabel}
+                    </Tag>
+                  </span>
+                )
+              }}
             />
             <p className="select-hint">
-              选择部门后，将写入"工作记录.md"的归属部门字段，便于后续归档
+              部门归档会按年份整理，项目归档会集中到对应项目文件夹。
             </p>
           </div>
         )}

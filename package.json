@@ -8,7 +8,7 @@
     "email": "yangzlnn@foxmail.com"
   },
   "main": "electron/main.js",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -41,8 +41,8 @@
   },
   "build": {
     "appId": "com.jankiny.knot",
-    "productName": "Knot - 绳结",
-    "copyright": "Copyright © 2026 Jankiny",
+    "productName": "Knot",
+    "copyright": "Copyright © 2026 Knot",
     "directories": {
       "output": "dist-electron"
     },

@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS = {
   departments: [],
   // 默认部门ID
   defaultDepartmentId: null,
+  projects: [],
+  defaultProjectId: null,
   // 归档扫描目录（扫描工作文件夹的位置）
   scanPath: '~/Desktop',
   // AI 日报设置
@@ -81,12 +83,13 @@ export function getDepartments() {
   return getSettings().departments || []
 }
 
-export function addDepartment(name, archivePath) {
+export function addDepartment(name, archivePath, useYearFolder = true) {
   const departments = getDepartments()
   const newDept = {
     id: generateId(),
     name,
-    archivePath
+    archivePath,
+    useYearFolder
   }
   departments.push(newDept)
   saveSettings({ departments })
@@ -130,6 +133,63 @@ export function getDefaultDepartment() {
   const settings = getSettings()
   if (settings.defaultDepartmentId) {
     return getDepartmentById(settings.defaultDepartmentId)
+  }
+  return null
+}
+
+export function getProjects() {
+  return getSettings().projects || []
+}
+
+export function addProject(name, archivePath, useYearFolder = false) {
+  const projects = getProjects()
+  const newProject = {
+    id: generateId(),
+    name,
+    archivePath,
+    useYearFolder
+  }
+  projects.push(newProject)
+  saveSettings({ projects })
+  return newProject
+}
+
+export function updateProject(id, updates) {
+  const projects = getProjects()
+  const index = projects.findIndex(p => p.id === id)
+  if (index !== -1) {
+    projects[index] = { ...projects[index], ...updates }
+    saveSettings({ projects })
+    return projects[index]
+  }
+  return null
+}
+
+export function deleteProject(id) {
+  const projects = getProjects()
+  const filtered = projects.filter(p => p.id !== id)
+  const settings = getSettings()
+  if (settings.defaultProjectId === id) {
+    saveSettings({ projects: filtered, defaultProjectId: null })
+  } else {
+    saveSettings({ projects: filtered })
+  }
+  return filtered
+}
+
+export function getProjectById(id) {
+  const projects = getProjects()
+  return projects.find(p => p.id === id) || null
+}
+
+export function setDefaultProject(id) {
+  saveSettings({ defaultProjectId: id })
+}
+
+export function getDefaultProject() {
+  const settings = getSettings()
+  if (settings.defaultProjectId) {
+    return getProjectById(settings.defaultProjectId)
   }
   return null
 }

@@ -67,3 +67,12 @@
 .dept-edit-form {
   width: 100%;
 }
+
+.dept-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 0 12px;
+  color: #666;
+  font-size: 13px;
+}

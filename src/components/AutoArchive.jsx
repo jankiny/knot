@@ -2,13 +2,24 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, Empty, Input, message, Modal, Select, Space, Spin, Tag, Tooltip } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { archiveApi } from '../services/api'
-import { getDepartmentById, getDepartments, getSettings } from '../services/settings'
+import {
+  getDepartmentById,
+  getDepartments,
+  getProjectById,
+  getProjects,
+  getSettings
+} from '../services/settings'
 import FolderCard, { getDisplayTitle } from './FolderCard'
 import './AutoArchive.css'
 
 const SOURCE_LABEL_MAP = {
   manual: '手动',
   email: '邮件'
+}
+
+function getArchiveYear(folderName) {
+  const prefix = String(folderName || '').slice(0, 4)
+  return /^\d{4}$/.test(prefix) ? prefix : '其他'
 }
 
 function toSourceLabel(source) {
@@ -21,19 +32,23 @@ function AutoArchive() {
   const [folders, setFolders] = useState([])
   const [scanned, setScanned] = useState(false)
   const [departments, setDepartments] = useState([])
+  const [projects, setProjects] = useState([])
   const [activeMonthKey, setActiveMonthKey] = useState('')
 
-  const [editDeptVisible, setEditDeptVisible] = useState(false)
+  const [editTargetVisible, setEditTargetVisible] = useState(false)
   const [editingFolder, setEditingFolder] = useState(null)
-  const [editDeptId, setEditDeptId] = useState(null)
+  const [editTargetId, setEditTargetId] = useState(null)
 
   const [contentVisible, setContentVisible] = useState(false)
   const [contentFolder, setContentFolder] = useState(null)
   const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
 
+  const settings = getSettings()
+
   useEffect(() => {
     setDepartments(getDepartments())
+    setProjects(getProjects())
     handleScan(true)
   }, [])
 
@@ -100,8 +115,7 @@ function AutoArchive() {
       if (!closestId) return
       const folderPath = closestId.replace('folder-', '')
       const folder = folders.find((f) => f.path === folderPath)
-      if (!folder?.create_time) return
-      const match = folder.create_time.match(/^(\d{4})-(\d{2})/)
+      const match = folder?.create_time?.match(/^(\d{4})-(\d{2})/)
       if (match) setActiveMonthKey(`${match[1]}-${match[2]}`)
     }, {
       rootMargin: '-80px 0px 0px 0px',
@@ -124,8 +138,8 @@ function AutoArchive() {
   }
 
   const handleScan = async (silent = false) => {
-    const settings = getSettings()
-    const scanPath = settings.folderPath || '~/Desktop'
+    const currentSettings = getSettings()
+    const scanPath = currentSettings.folderPath || '~/Desktop'
 
     setLoading(true)
     setFolders([])
@@ -152,12 +166,30 @@ function AutoArchive() {
     }
   }
 
+  const getArchiveTarget = (folder) => {
+    if (folder.project) {
+      const project = projects.find((p) => p.name === folder.project)
+      return project ? { ...project, type: 'project' } : null
+    }
+    if (folder.department) {
+      const department = departments.find((d) => d.name === folder.department)
+      return department ? { ...department, type: 'department' } : null
+    }
+    return null
+  }
+
   const handleArchive = async (folder) => {
-    const dept = departments.find((d) => d.name === folder.department)
-    if (!dept) {
-      message.warning('请先点击部门标签指定归属部门后再归档')
+    const target = getArchiveTarget(folder)
+    if (!target) {
+      message.warning('请先指定归属后再归档')
       return
     }
+
+    const useYearFolder = target.type === 'department'
+    const year = getArchiveYear(folder.name)
+    const destinationPreview = useYearFolder
+      ? `${target.archivePath}/${year}/`
+      : `${target.archivePath}/`
 
     Modal.confirm({
       title: '确认归档',
@@ -165,14 +197,14 @@ function AutoArchive() {
         <div>
           <p>将文件夹移动到归档目录：</p>
           <p><strong>{folder.name}</strong></p>
-          <p>→ {dept.archivePath}/{folder.name.substring(0, 4)}/</p>
+          <p>→ {destinationPreview}</p>
         </div>
       ),
       okText: '确认归档',
       cancelText: '取消',
       onOk: async () => {
         try {
-          const result = await archiveApi.move(folder.path, dept.archivePath)
+          const result = await archiveApi.move(folder.path, target.archivePath, useYearFolder)
           if (result.success) {
             message.success(result.message || '归档成功')
             setFolders((prev) => prev.filter((f) => f.path !== folder.path))
@@ -184,25 +216,40 @@ function AutoArchive() {
     })
   }
 
-  const handleEditDept = (folder) => {
+  const handleEditTarget = (folder) => {
     setEditingFolder(folder)
-    const dept = departments.find((d) => d.name === folder.department)
-    setEditDeptId(dept ? dept.id : null)
-    setEditDeptVisible(true)
+    if (folder.project) {
+      const project = projects.find((p) => p.name === folder.project)
+      setEditTargetId(project ? `project:${project.id}` : null)
+    } else if (folder.department) {
+      const dept = departments.find((d) => d.name === folder.department)
+      setEditTargetId(dept ? `department:${dept.id}` : null)
+    } else {
+      setEditTargetId(null)
+    }
+    setEditTargetVisible(true)
   }
 
-  const handleDeptSave = async () => {
-    if (!editDeptId || !editingFolder) return
-    const dept = getDepartmentById(editDeptId)
-    if (!dept) return
+  const handleTargetSave = async () => {
+    if (!editTargetId || !editingFolder) return
+    const [targetType, rawId] = String(editTargetId).split(':')
+    const target = targetType === 'project' ? getProjectById(rawId) : getDepartmentById(rawId)
+    if (!target) return
 
     try {
-      await archiveApi.updateWorkRecord(editingFolder.path, { department: dept.name })
-      message.success('归属部门已更新')
-      setFolders((prev) => prev.map((f) => (
-        f.path === editingFolder.path ? { ...f, department: dept.name } : f
+      await archiveApi.updateWorkRecord(
+        editingFolder.path,
+        targetType === 'project' ? { project: target.name } : { department: target.name }
+      )
+      message.success('归属已更新')
+      setFolders((prev) => prev.map((folder) => (
+        folder.path === editingFolder.path
+          ? (targetType === 'project'
+              ? { ...folder, project: target.name, department: '' }
+              : { ...folder, department: target.name, project: '' })
+          : folder
       )))
-      setEditDeptVisible(false)
+      setEditTargetVisible(false)
       setEditingFolder(null)
     } catch (error) {
       message.error(error.response?.data?.detail || '更新失败')
@@ -233,26 +280,18 @@ function AutoArchive() {
       const nextCoreContent = result?.core_content || contentFolder.content
       const nextRawContent = result?.content || editContent
 
-      setFolders((prev) => prev.map((f) => (
-        f.path === contentFolder.path
+      setFolders((prev) => prev.map((folder) => (
+        folder.path === contentFolder.path
           ? {
-              ...f,
+              ...folder,
               path: nextPath,
               name: nextName,
               title: nextTitle,
               content: nextCoreContent,
               raw_content: nextRawContent
             }
-          : f
+          : folder
       )))
-      setContentFolder((prev) => (prev ? {
-        ...prev,
-        path: nextPath,
-        name: nextName,
-        title: nextTitle,
-        content: nextCoreContent,
-        raw_content: nextRawContent
-      } : prev))
       setContentVisible(false)
       setContentFolder(null)
     } catch (error) {
@@ -271,8 +310,6 @@ function AutoArchive() {
       message.error('打开目录失败')
     }
   }
-
-  const settings = getSettings()
 
   if (loading) {
     return (
@@ -320,7 +357,7 @@ function AutoArchive() {
                   <FolderCard
                     folder={folder}
                     onArchive={handleArchive}
-                    onEditDept={handleEditDept}
+                    onEditDept={handleEditTarget}
                     onViewContent={handleViewContent}
                     onOpenFolder={handleOpenFolder}
                   />
@@ -359,10 +396,10 @@ function AutoArchive() {
       </div>
 
       <Modal
-        title="编辑归属部门"
-        open={editDeptVisible}
-        onOk={handleDeptSave}
-        onCancel={() => { setEditDeptVisible(false); setEditingFolder(null) }}
+        title="编辑归属"
+        open={editTargetVisible}
+        onOk={handleTargetSave}
+        onCancel={() => { setEditTargetVisible(false); setEditingFolder(null) }}
         okText="保存"
         cancelText="取消"
         width={400}
@@ -374,17 +411,31 @@ function AutoArchive() {
             </p>
             <Select
               style={{ width: '100%' }}
-              placeholder="请选择部门"
-              value={editDeptId}
-              onChange={setEditDeptId}
-              options={departments.map((d) => ({
-                label: d.name,
-                value: d.id,
-                desc: d.archivePath
-              }))}
+              placeholder="请选择归属"
+              value={editTargetId}
+              onChange={setEditTargetId}
+              options={[
+                ...departments.map((item) => ({
+                  label: item.name,
+                  value: `department:${item.id}`,
+                  desc: item.archivePath,
+                  type: 'department',
+                  typeLabel: '部门'
+                })),
+                ...projects.map((item) => ({
+                  label: item.name,
+                  value: `project:${item.id}`,
+                  desc: item.archivePath,
+                  type: 'project',
+                  typeLabel: '项目'
+                }))
+              ]}
               optionRender={(option) => (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{option.data.label}</span>
+                  <Space size={6}>
+                    <span>{option.data.label}</span>
+                    <Tag color={option.data.type === 'project' ? 'purple' : 'blue'}>{option.data.typeLabel}</Tag>
+                  </Space>
                   <span style={{ color: '#999', fontSize: 12 }}>{option.data.desc}</span>
                 </div>
               )}
