@@ -393,16 +393,16 @@ function MailList() {
   }
 
   // 确认选择归属后创建文件夹
-  const handleDeptConfirm = async (target) => {
+  const handleDeptConfirm = async (target, sopTemplateId) => {
     setDeptModalOpen(false)
     if (selectedMailForFolder) {
-      await handleCreateFolder(selectedMailForFolder, target)
+      await handleCreateFolder(selectedMailForFolder, target, sopTemplateId)
     }
     setSelectedMailForFolder(null)
   }
 
   // 创建文件夹（始终包含附件下载）
-  const handleCreateFolder = async (mail, target = null) => {
+  const handleCreateFolder = async (mail, target = null, sopTemplateId = 'default-task') => {
     setCreating(prev => ({ ...prev, [mail.id]: true }))
     try {
       // 如果邮件没有正文，先加载详情
@@ -445,7 +445,8 @@ function MailList() {
         department: target?.type === 'department' ? target.name : null,
         project: target?.type === 'project' ? target.name : null,
         source: '邮件',
-        hash: mailHash
+        hash: mailHash,
+        sop_template_id: sopTemplateId || 'default-task'
       }
 
       // 始终使用 createWithAttachments，如果有附件会自动下载
@@ -785,6 +786,7 @@ function MailList() {
           setDeptModalOpen(false)
           setSelectedMailForFolder(null)
         }}
+        enableSop
       />
     </div>
   )

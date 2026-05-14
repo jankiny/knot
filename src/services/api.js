@@ -113,6 +113,28 @@ export const archiveApi = {
     return response.data
   },
 
+  list: async ({ archivePath, page = 1, pageSize = 30, keyword = '', year = '' }) => {
+    const response = await axios.get(`${API_BASE}/archive/list`, {
+      params: {
+        archive_path: archivePath,
+        page,
+        page_size: pageSize,
+        keyword,
+        year
+      }
+    })
+    return response.data
+  },
+
+  restore: async (folderPath, restorePath, newName = '') => {
+    const response = await axios.post(`${API_BASE}/archive/restore`, {
+      folder_path: folderPath,
+      restore_path: restorePath,
+      new_name: newName
+    })
+    return response.data
+  },
+
   // 更新工作记录
   updateWorkRecord: async (folderPath, departmentOrPayload = '', content = '', title = '') => {
     const payload = typeof departmentOrPayload === 'object' && departmentOrPayload !== null
@@ -134,6 +156,13 @@ export const archiveApi = {
         }
 
     const response = await axios.post(`${API_BASE}/archive/update-work-record`, payload)
+    return response.data
+  }
+}
+
+export const sopApi = {
+  listTemplates: async () => {
+    const response = await axios.get(`${API_BASE}/sop/templates`)
     return response.data
   }
 }

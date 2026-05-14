@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Empty, Modal, Select, Tag, message } from 'antd'
+import { sopApi } from '../services/api'
 import {
   getDefaultDepartment,
   getDefaultProject,
+  getDefaultSopTemplateId,
   getDepartments,
   getProjects
 } from '../services/settings'
 import './DepartmentSelectModal.css'
 
-function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, description }) {
+function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, description, enableSop = false }) {
   const [targets, setTargets] = useState([])
   const [selectedTargetId, setSelectedTargetId] = useState(null)
+  const [templates, setTemplates] = useState([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState(getDefaultSopTemplateId())
 
   useEffect(() => {
     if (open) {
@@ -40,8 +44,22 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
       } else {
         setSelectedTargetId(null)
       }
+
+      if (enableSop) {
+        const defaultTemplateId = getDefaultSopTemplateId()
+        setSelectedTemplateId(defaultTemplateId)
+        sopApi.listTemplates()
+          .then((result) => {
+            const nextTemplates = result.templates || []
+            setTemplates(nextTemplates)
+            if (!nextTemplates.some((tpl) => tpl.id === defaultTemplateId)) {
+              setSelectedTemplateId('default-task')
+            }
+          })
+          .catch(() => setTemplates([]))
+      }
     }
-  }, [open])
+  }, [open, enableSop])
 
   const options = useMemo(() => targets.map((target) => ({
     label: target.name,
@@ -57,11 +75,11 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
       return
     }
     const selectedTarget = targets.find((target) => target.key === selectedTargetId)
-    onConfirm(selectedTarget || null)
+    onConfirm(selectedTarget || null, enableSop ? selectedTemplateId : null)
   }
 
   const handleSkip = () => {
-    onConfirm(null)
+    onConfirm(null, enableSop ? selectedTemplateId : null)
   }
 
   return (
@@ -96,6 +114,37 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
               <span className="label">发件人：</span>
               <span className="value">{mail.from}</span>
             </div>
+          </div>
+        )}
+
+        {enableSop && (
+          <div className="dept-select-area">
+            <Select
+              style={{ width: '100%' }}
+              placeholder="请选择标准流程"
+              value={selectedTemplateId}
+              onChange={setSelectedTemplateId}
+              options={(templates.length ? templates : [{ id: 'default-task', name: '通用任务' }]).map((tpl) => ({
+                label: tpl.name,
+                value: tpl.id,
+                desc: tpl.description,
+                typeLabel: tpl.builtin ? '内置' : '已安装'
+              }))}
+              optionRender={(option) => (
+                <div className="dept-option">
+                  <span className="dept-option-main">
+                    <span className="dept-option-name">{option.data.label}</span>
+                    <Tag color={option.data.typeLabel === '内置' ? 'blue' : 'green'}>
+                      {option.data.typeLabel}
+                    </Tag>
+                  </span>
+                  <span className="dept-option-path">{option.data.desc}</span>
+                </div>
+              )}
+            />
+            <p className="select-hint">
+              标准流程会决定新任务的目录结构和初始模板文件。
+            </p>
           </div>
         )}
 

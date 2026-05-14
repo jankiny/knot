@@ -6,6 +6,7 @@ import {
   CloseOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  InboxOutlined,
   InfoCircleOutlined,
   MailOutlined,
   MenuFoldOutlined,
@@ -17,6 +18,7 @@ import {
 import zhCN from 'antd/locale/zh_CN'
 import About from './components/About'
 import AutoArchive from './components/AutoArchive'
+import ArchiveManager from './components/ArchiveManager'
 import DailyReport from './components/DailyReport'
 import MailList from './components/MailList'
 import QuickCreate from './components/QuickCreate'
@@ -61,7 +63,8 @@ function App() {
   const menuItems = [
     { key: 'mail', icon: <MailOutlined />, label: '邮件列表' },
     { key: 'quick', icon: <PlusSquareOutlined />, label: '快速创建' },
-    { key: 'archive', icon: <FolderOpenOutlined />, label: '自动归档' },
+    { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
+    { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
     { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' }
   ]
 
@@ -73,6 +76,8 @@ function App() {
         return <QuickCreate />
       case 'archive':
         return <AutoArchive />
+      case 'archive-manager':
+        return <ArchiveManager />
       case 'daily':
         return <DailyReport />
       case 'about':
@@ -91,7 +96,9 @@ function App() {
       case 'quick':
         return '快速创建'
       case 'archive':
-        return '自动归档'
+        return '当前工作'
+      case 'archive-manager':
+        return '归档管理'
       case 'daily':
         return '日报生成'
       case 'about':

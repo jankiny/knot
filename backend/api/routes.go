@@ -26,11 +26,12 @@ import (
 )
 
 const (
-	workRecordFileName = "\u5de5\u4f5c\u8bb0\u5f55.md"
-	taskSourceDirName  = "00_\u6765\u6e90\u8d44\u6599"
-	taskProcessDirName = "10_\u8fc7\u7a0b\u6587\u4ef6"
-	taskOutputDirName  = "20_\u6210\u679c\u8f93\u51fa"
-	taskAttachmentDir  = "\u9644\u4ef6"
+	workRecordFileName   = "\u5de5\u4f5c\u8bb0\u5f55.md"
+	taskSourceDirName    = "00_\u6765\u6e90\u8d44\u6599"
+	taskProcessDirName   = "10_\u8fc7\u7a0b\u6587\u4ef6"
+	taskOutputDirName    = "20_\u6210\u679c\u8f93\u51fa"
+	taskAttachmentDir    = "\u9644\u4ef6"
+	defaultSOPTemplateID = "default-task"
 )
 
 var mailClient *mail.MailClient
@@ -65,6 +66,10 @@ func SetupRoutes() *chi.Mux {
 		r.Post("/archive/move", handleArchiveMove)
 		r.Post("/archive/batch-move", handleArchiveBatchMove)
 		r.Post("/archive/update-work-record", handleUpdateWorkRecord)
+		r.Get("/archive/list", handleArchiveList)
+		r.Post("/archive/restore", handleArchiveRestore)
+
+		r.Get("/sop/templates", handleListSOPTemplates)
 
 		r.Post("/report/daily/generate", handleGenerateDailyReport)
 	})
@@ -191,6 +196,7 @@ type FolderRequest struct {
 	Project             string                   `json:"project"`
 	Source              string                   `json:"source"`
 	Hash                string                   `json:"hash"`
+	SOPTemplateID       string                   `json:"sop_template_id"`
 }
 
 func getBaseFolder(basePath string) string {
@@ -242,14 +248,225 @@ func normalizeSource(source string, hasMailID bool) string {
 	return "manual"
 }
 
-func createTaskStructure(folderPath string) error {
-	dirs := []string{
-		filepath.Join(folderPath, taskSourceDirName),
-		filepath.Join(folderPath, taskProcessDirName),
-		filepath.Join(folderPath, taskOutputDirName),
+type SOPTemplateFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type SOPTemplate struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Version     string            `json:"version"`
+	Description string            `json:"description"`
+	Folders     []string          `json:"folders"`
+	Files       []SOPTemplateFile `json:"files,omitempty"`
+	Builtin     bool              `json:"builtin"`
+	Path        string            `json:"path,omitempty"`
+}
+
+func defaultSOPTemplates() []SOPTemplate {
+	return []SOPTemplate{
+		{
+			ID:          defaultSOPTemplateID,
+			Name:        "通用任务",
+			Version:     "1.0.0",
+			Description: "默认工作材料目录结构",
+			Folders: []string{
+				taskSourceDirName,
+				taskProcessDirName,
+				taskOutputDirName,
+			},
+			Builtin: true,
+		},
+		{
+			ID:          "learning-notes",
+			Name:        "学习笔记",
+			Version:     "1.0.0",
+			Description: "用于课程、培训、阅读资料的学习整理",
+			Folders: []string{
+				"00_学习资料",
+				"01_学习笔记",
+				"02_课后作业",
+			},
+			Files: []SOPTemplateFile{
+				{
+					Path: "01_学习笔记/学习笔记.md",
+					Content: `# 学习笔记
+
+## 核心概念
+
+## 重点摘录
+
+## 我的理解
+
+## 待复习问题
+`,
+				},
+				{
+					Path: "02_课后作业/作业记录.md",
+					Content: `# 作业记录
+
+## 作业要求
+
+## 完成过程
+
+## 提交结果
+`,
+				},
+			},
+			Builtin: true,
+		},
+	}
+}
+
+func sopTemplateRoots() []string {
+	roots := []string{}
+	if cfg, err := os.UserConfigDir(); err == nil && strings.TrimSpace(cfg) != "" {
+		userRoot := filepath.Join(cfg, "Knot", "sop-templates")
+		_ = os.MkdirAll(userRoot, 0o755)
+		roots = append(roots, userRoot)
+	}
+	if cwd, err := os.Getwd(); err == nil && strings.TrimSpace(cwd) != "" {
+		roots = append(roots, filepath.Join(cwd, "templates", "sop"))
+	}
+	return roots
+}
+
+func writeSeedSOPTemplate(root string, tpl SOPTemplate) {
+	if strings.TrimSpace(root) == "" || strings.TrimSpace(tpl.ID) == "" {
+		return
+	}
+	dir := filepath.Join(root, sanitizeFolderName(tpl.ID))
+	sopPath := filepath.Join(dir, "sop.json")
+	if _, err := os.Stat(sopPath); err == nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	tpl.Path = ""
+	raw, err := json.MarshalIndent(tpl, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(sopPath, append(raw, '\n'), 0o644)
+}
+
+func ensureSeedSOPTemplates() {
+	roots := sopTemplateRoots()
+	if len(roots) == 0 {
+		return
+	}
+	userRoot := roots[0]
+	for _, tpl := range defaultSOPTemplates() {
+		writeSeedSOPTemplate(userRoot, tpl)
+	}
+}
+
+func isSeedSOPTemplate(id string) bool {
+	for _, tpl := range defaultSOPTemplates() {
+		if tpl.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func loadExternalSOPTemplates() []SOPTemplate {
+	templates := []SOPTemplate{}
+	for _, root := range sopTemplateRoots() {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			dir := filepath.Join(root, entry.Name())
+			raw, err := os.ReadFile(filepath.Join(dir, "sop.json"))
+			if err != nil {
+				continue
+			}
+			var tpl SOPTemplate
+			if err := json.Unmarshal(raw, &tpl); err != nil {
+				continue
+			}
+			tpl.ID = strings.TrimSpace(tpl.ID)
+			tpl.Name = strings.TrimSpace(tpl.Name)
+			if tpl.ID == "" || tpl.Name == "" {
+				continue
+			}
+			tpl.Builtin = isSeedSOPTemplate(tpl.ID)
+			tpl.Path = dir
+			templates = append(templates, tpl)
+		}
+	}
+	return templates
+}
+
+func getSOPTemplates() []SOPTemplate {
+	ensureSeedSOPTemplates()
+	templates := []SOPTemplate{}
+	seen := map[string]bool{}
+	for _, tpl := range loadExternalSOPTemplates() {
+		if seen[tpl.ID] {
+			continue
+		}
+		seen[tpl.ID] = true
+		templates = append(templates, tpl)
+	}
+	if len(templates) == 0 {
+		templates = defaultSOPTemplates()
+	}
+	return templates
+}
+
+func findSOPTemplate(id string) SOPTemplate {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = defaultSOPTemplateID
+	}
+	for _, tpl := range getSOPTemplates() {
+		if tpl.ID == id {
+			return tpl
+		}
+	}
+	return defaultSOPTemplates()[0]
+}
+
+func safeTemplateRelativePath(name string) (string, bool) {
+	name = filepath.Clean(strings.TrimSpace(name))
+	if name == "." || name == "" || filepath.IsAbs(name) || strings.HasPrefix(name, "..") {
+		return "", false
+	}
+	return name, true
+}
+
+func createTaskStructure(folderPath string, tpl SOPTemplate) error {
+	dirs := tpl.Folders
+	if len(dirs) == 0 {
+		dirs = defaultSOPTemplates()[0].Folders
 	}
 	for _, d := range dirs {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		rel, ok := safeTemplateRelativePath(d)
+		if !ok {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Join(folderPath, rel), 0o755); err != nil {
+			return err
+		}
+	}
+	for _, file := range tpl.Files {
+		rel, ok := safeTemplateRelativePath(file.Path)
+		if !ok {
+			continue
+		}
+		filePath := filepath.Join(folderPath, rel)
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filePath, []byte(file.Content), 0o644); err != nil {
 			return err
 		}
 	}
@@ -341,8 +558,17 @@ func writePlainTextPDF(filePath string, title string, body string) error {
 	return os.WriteFile(filePath, out.Bytes(), 0o644)
 }
 
-func writeEmailSourceFiles(folderPath string, req FolderRequest) error {
-	sourceDir := filepath.Join(folderPath, taskSourceDirName)
+func sourceFolderNameForTemplate(tpl SOPTemplate) string {
+	if len(tpl.Folders) > 0 {
+		if rel, ok := safeTemplateRelativePath(tpl.Folders[0]); ok {
+			return rel
+		}
+	}
+	return taskSourceDirName
+}
+
+func writeEmailSourceFiles(folderPath string, req FolderRequest, sourceFolderName string) error {
+	sourceDir := filepath.Join(folderPath, sourceFolderName)
 	if err := os.MkdirAll(filepath.Join(sourceDir, taskAttachmentDir), 0o755); err != nil {
 		return err
 	}
@@ -362,13 +588,21 @@ func writeEmailSourceFiles(folderPath string, req FolderRequest) error {
 	return nil
 }
 
-func writeManualSourceFiles(folderPath string) error {
-	sourceDir := filepath.Join(folderPath, taskSourceDirName)
+func writeManualSourceFiles(folderPath string, sourceFolderName string) error {
+	sourceDir := filepath.Join(folderPath, sourceFolderName)
 	return os.MkdirAll(sourceDir, 0o755)
 }
 
-func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceType string, now time.Time) string {
+func formatTaskDate(dateValue string, fallback time.Time) string {
+	if t := parseTimeLoose(dateValue); !t.IsZero() {
+		return t.Format("2006-01-02")
+	}
+	return fallback.Format("2006-01-02")
+}
+
+func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceType string, now time.Time, tpl SOPTemplate) string {
 	createdDate := now.Format("2006-01-02")
+	taskDate := formatTaskDate(req.Date, now)
 	title := strings.TrimSpace(req.Subject)
 	if title == "" {
 		title = folderName
@@ -389,9 +623,12 @@ title: %s
 status: active
 created: %s
 updated: %s
+task_date: %s
 source: %s
 department: %s
 project: %s
+sop_template_id: %s
+sop_template_name: %s
 project_path: %s
 folder_name: %s
 archive_status: local_active
@@ -417,7 +654,7 @@ tags:
 ## 下一步
 
 继续补充过程材料，完成成果文件并放入 20_成果输出。
-`, title, createdDate, createdDate, sourceType, req.Department, req.Project, projectPath, folderName, hash, title, title, createdDate)
+`, title, createdDate, createdDate, taskDate, sourceType, req.Department, req.Project, tpl.ID, tpl.Name, projectPath, folderName, hash, title, title, taskDate)
 }
 
 func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
@@ -438,24 +675,26 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 	baseFolder := getBaseFolder(req.BasePath)
 	folderName := sanitizeFolderName(req.FolderName)
 	folderPath := filepath.Join(baseFolder, folderName)
+	sopTemplate := findSOPTemplate(req.SOPTemplateID)
+	sourceFolderName := sourceFolderNameForTemplate(sopTemplate)
 
 	if err := os.MkdirAll(folderPath, 0o755); err != nil {
 		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("创建目录失败: %v", err))
 		return
 	}
-	if err := createTaskStructure(folderPath); err != nil {
+	if err := createTaskStructure(folderPath, sopTemplate); err != nil {
 		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("创建标准结构失败: %v", err))
 		return
 	}
 
 	sourceType := normalizeSource(req.Source, strings.TrimSpace(req.MailID) != "")
 	if sourceType == "email" {
-		if err := writeEmailSourceFiles(folderPath, req); err != nil {
+		if err := writeEmailSourceFiles(folderPath, req, sourceFolderName); err != nil {
 			jsonError(w, http.StatusInternalServerError, fmt.Sprintf("保存邮件来源失败: %v", err))
 			return
 		}
 	} else {
-		if err := writeManualSourceFiles(folderPath); err != nil {
+		if err := writeManualSourceFiles(folderPath, sourceFolderName); err != nil {
 			jsonError(w, http.StatusInternalServerError, fmt.Sprintf("保存需求来源失败: %v", err))
 			return
 		}
@@ -463,7 +702,7 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 
 	var downloaded []string
 	if downloadAttachments && sourceType == "email" && mailClient != nil && strings.TrimSpace(req.MailID) != "" {
-		attachmentsPath := filepath.Join(folderPath, taskSourceDirName, taskAttachmentDir)
+		attachmentsPath := filepath.Join(folderPath, sourceFolderName, taskAttachmentDir)
 		d, err := mailClient.DownloadAttachments(req.MailID, attachmentsPath)
 		if err == nil {
 			downloaded = d
@@ -471,7 +710,7 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 	}
 
 	now := time.Now()
-	workRecord := buildWorkRecordTemplate(req, folderName, folderPath, sourceType, now)
+	workRecord := buildWorkRecordTemplate(req, folderName, folderPath, sourceType, now, sopTemplate)
 	wrPath := filepath.Join(folderPath, workRecordFileName)
 	if err := os.WriteFile(wrPath, []byte(workRecord), 0o644); err != nil {
 		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("写入工作记录失败: %v", err))
@@ -496,20 +735,23 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 
 // WorkRecordInfo holds parsed info from 工作记录.md
 type WorkRecordInfo struct {
-	Title         string `json:"title"`
-	Department    string `json:"department"`
-	Project       string `json:"project"`
-	CreateTime    string `json:"create_time"`
-	UpdateTime    string `json:"update_time"`
-	Source        string `json:"source"`
-	Content       string `json:"content"`
-	RawContent    string `json:"raw_content"`
-	Hash          string `json:"hash"`
-	Status        string `json:"status"`
-	ArchiveStatus string `json:"archive_status"`
-	SchemaVersion int    `json:"schema_version"`
-	ProjectPath   string `json:"project_path"`
-	FolderName    string `json:"folder_name"`
+	Title           string `json:"title"`
+	Department      string `json:"department"`
+	Project         string `json:"project"`
+	CreateTime      string `json:"create_time"`
+	UpdateTime      string `json:"update_time"`
+	TaskDate        string `json:"task_date"`
+	Source          string `json:"source"`
+	Content         string `json:"content"`
+	RawContent      string `json:"raw_content"`
+	Hash            string `json:"hash"`
+	Status          string `json:"status"`
+	ArchiveStatus   string `json:"archive_status"`
+	SchemaVersion   int    `json:"schema_version"`
+	ProjectPath     string `json:"project_path"`
+	FolderName      string `json:"folder_name"`
+	SOPTemplateID   string `json:"sop_template_id"`
+	SOPTemplateName string `json:"sop_template_name"`
 }
 
 type parsedWorkRecord struct {
@@ -714,12 +956,15 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 	info.Project = get("project")
 	info.CreateTime = get("created")
 	info.UpdateTime = get("updated")
+	info.TaskDate = get("task_date", "taskDate", "marked_time", "markedTime")
 	info.Source = get("source")
 	info.Hash = get("hash")
 	info.Status = get("status")
 	info.ArchiveStatus = get("archive_status", "archiveStatus")
 	info.ProjectPath = get("project_path", "projectPath")
 	info.FolderName = get("folder_name", "folderName")
+	info.SOPTemplateID = get("sop_template_id", "sopTemplateId")
+	info.SOPTemplateName = get("sop_template_name", "sopTemplateName")
 
 	schemaValue := get("schema_version")
 	if schemaValue != "" {
@@ -751,6 +996,9 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 		if t, err := os.Stat(filePath); err == nil {
 			info.CreateTime = t.ModTime().Format("2006-01-02")
 		}
+	}
+	if strings.TrimSpace(info.TaskDate) == "" {
+		info.TaskDate = info.CreateTime
 	}
 	if strings.TrimSpace(info.UpdateTime) == "" {
 		info.UpdateTime = info.CreateTime
@@ -784,6 +1032,10 @@ func ensureFrontmatterLines(parsed *parsedWorkRecord, folderPath string) []strin
 	if updated == "" {
 		updated = created
 	}
+	taskDate := strings.TrimSpace(info.TaskDate)
+	if taskDate == "" {
+		taskDate = created
+	}
 	title := strings.TrimSpace(info.Title)
 	if title == "" {
 		title = fallbackTitleFromFolderName(filepath.Base(folderPath))
@@ -816,9 +1068,12 @@ func ensureFrontmatterLines(parsed *parsedWorkRecord, folderPath string) []strin
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("created: %s", created),
 		fmt.Sprintf("updated: %s", updated),
+		fmt.Sprintf("task_date: %s", taskDate),
 		fmt.Sprintf("source: %s", source),
 		fmt.Sprintf("department: %s", info.Department),
 		fmt.Sprintf("project: %s", info.Project),
+		fmt.Sprintf("sop_template_id: %s", info.SOPTemplateID),
+		fmt.Sprintf("sop_template_name: %s", info.SOPTemplateName),
 		fmt.Sprintf("project_path: %s", projectPath),
 		fmt.Sprintf("folder_name: %s", folderName),
 		fmt.Sprintf("archive_status: %s", archiveStatus),
@@ -918,6 +1173,35 @@ func markWorkRecordArchived(workRecordPath string, destination string, archivedA
 	return writeWorkRecordFile(workRecordPath, front, body)
 }
 
+func appendRestoreInfoSection(body string, destination string, restoredAt time.Time) string {
+	body = strings.TrimSpace(body)
+	if body != "" {
+		body += "\n\n"
+	}
+	body += "## 恢复记录\n\n"
+	body += fmt.Sprintf("- 恢复位置：%s\n", filepath.ToSlash(destination))
+	body += fmt.Sprintf("- 恢复时间：%s\n", restoredAt.Format("2006-01-02 15:04:05"))
+	return body + "\n"
+}
+
+func markWorkRecordRestored(workRecordPath string, destination string, restoredAt time.Time) error {
+	parsed, err := readWorkRecord(workRecordPath)
+	if err != nil {
+		return err
+	}
+
+	folderPath := filepath.Dir(workRecordPath)
+	front := ensureFrontmatterLines(parsed, folderPath)
+	front = upsertFrontmatterValue(front, []string{"status"}, "status", "active")
+	front = upsertFrontmatterValue(front, []string{"archive_status"}, "archive_status", "local_active")
+	front = upsertFrontmatterValue(front, []string{"updated"}, "updated", restoredAt.Format("2006-01-02"))
+	front = upsertFrontmatterValue(front, []string{"project_path", "projectPath"}, "project_path", filepath.ToSlash(folderPath))
+	front = upsertFrontmatterValue(front, []string{"folder_name", "folderName"}, "folder_name", filepath.Base(folderPath))
+
+	body := appendRestoreInfoSection(parsed.Body, destination, restoredAt)
+	return writeWorkRecordFile(workRecordPath, front, body)
+}
+
 func countFilesRecursively(folderPath string) int {
 	count := 0
 	_ = filepath.WalkDir(folderPath, func(path string, d fs.DirEntry, err error) error {
@@ -962,27 +1246,34 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 	if createTime == "" {
 		createTime = modified
 	}
+	taskDate := strings.TrimSpace(info.TaskDate)
+	if taskDate == "" {
+		taskDate = createTime
+	}
 
 	return map[string]interface{}{
-		"name":            name,
-		"path":            normalizeScanPath(folderPath),
-		"modified":        modified,
-		"has_work_record": true,
-		"department":      info.Department,
-		"project":         info.Project,
-		"create_time":     createTime,
-		"update_time":     info.UpdateTime,
-		"source":          info.Source,
-		"content":         info.Content,
-		"raw_content":     info.RawContent,
-		"file_count":      countFilesRecursively(folderPath),
-		"hash":            info.Hash,
-		"status":          info.Status,
-		"archive_status":  info.ArchiveStatus,
-		"schema_version":  info.SchemaVersion,
-		"project_path":    info.ProjectPath,
-		"folder_name":     info.FolderName,
-		"title":           info.Title,
+		"name":              name,
+		"path":              normalizeScanPath(folderPath),
+		"modified":          modified,
+		"has_work_record":   true,
+		"department":        info.Department,
+		"project":           info.Project,
+		"create_time":       createTime,
+		"update_time":       info.UpdateTime,
+		"task_date":         taskDate,
+		"source":            info.Source,
+		"content":           info.Content,
+		"raw_content":       info.RawContent,
+		"file_count":        countFilesRecursively(folderPath),
+		"hash":              info.Hash,
+		"status":            info.Status,
+		"archive_status":    info.ArchiveStatus,
+		"schema_version":    info.SchemaVersion,
+		"project_path":      info.ProjectPath,
+		"folder_name":       info.FolderName,
+		"title":             info.Title,
+		"sop_template_id":   info.SOPTemplateID,
+		"sop_template_name": info.SOPTemplateName,
 	}, true
 }
 
@@ -1037,8 +1328,8 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 
 	sort.Slice(folders, func(i, j int) bool {
 		a, b := folders[i], folders[j]
-		ta := parseTimeLoose(fmt.Sprint(a["create_time"]))
-		tb := parseTimeLoose(fmt.Sprint(b["create_time"]))
+		ta := parseTimeLoose(fmt.Sprint(a["task_date"]))
+		tb := parseTimeLoose(fmt.Sprint(b["task_date"]))
 		if ta.IsZero() && tb.IsZero() {
 			return fmt.Sprint(a["name"]) < fmt.Sprint(b["name"])
 		}
@@ -1080,9 +1371,91 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleArchiveList(w http.ResponseWriter, r *http.Request) {
+	archivePath := strings.TrimSpace(r.URL.Query().Get("archive_path"))
+	if archivePath == "" {
+		jsonError(w, http.StatusBadRequest, "archive_path is required")
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 30
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	keyword := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("keyword")))
+	year := strings.TrimSpace(r.URL.Query().Get("year"))
+	archivePath = normalizeScanPath(getBaseFolder(archivePath))
+
+	folders, err := collectScannedFolders(archivePath, true)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("无法读取归档目录: %v", err))
+		return
+	}
+
+	filtered := make([]map[string]interface{}, 0, len(folders))
+	years := map[string]bool{}
+	for _, folder := range folders {
+		taskDate := fmt.Sprint(folder["task_date"])
+		if len(taskDate) >= 4 {
+			years[taskDate[:4]] = true
+		}
+		if year != "" && (len(taskDate) < 4 || taskDate[:4] != year) {
+			continue
+		}
+		if keyword != "" {
+			searchText := strings.ToLower(strings.Join([]string{
+				fmt.Sprint(folder["title"]),
+				fmt.Sprint(folder["name"]),
+				fmt.Sprint(folder["content"]),
+				fmt.Sprint(folder["department"]),
+				fmt.Sprint(folder["project"]),
+			}, " "))
+			if !strings.Contains(searchText, keyword) {
+				continue
+			}
+		}
+		filtered = append(filtered, folder)
+	}
+
+	yearList := make([]string, 0, len(years))
+	for y := range years {
+		yearList = append(yearList, y)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(yearList)))
+
+	total := len(filtered)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"count":     len(filtered[start:end]),
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+		"has_more":  end < total,
+		"years":     yearList,
+		"folders":   filtered[start:end],
+	})
+}
+
 type ArchiveMoveRequest struct {
-	FolderPath     string `json:"folder_path"`
-	ArchivePath    string `json:"archive_path"`
+	FolderPath    string `json:"folder_path"`
+	ArchivePath   string `json:"archive_path"`
 	UseYearFolder *bool  `json:"use_year_folder"`
 }
 
@@ -1198,6 +1571,71 @@ func handleArchiveBatchMove(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type ArchiveRestoreRequest struct {
+	FolderPath  string `json:"folder_path"`
+	RestorePath string `json:"restore_path"`
+	NewName     string `json:"new_name"`
+}
+
+func uniqueRestorePath(dir, name string) string {
+	base := sanitizeFolderName(name)
+	if base == "" {
+		base = "restored_task"
+	}
+	candidate := filepath.Join(dir, base)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate
+	}
+	for i := 1; i <= 99; i++ {
+		next := filepath.Join(dir, fmt.Sprintf("%s_恢复%d", base, i))
+		if _, err := os.Stat(next); os.IsNotExist(err) {
+			return next
+		}
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s_%d", base, time.Now().Unix()))
+}
+
+func handleArchiveRestore(w http.ResponseWriter, r *http.Request) {
+	var req ArchiveRestoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "无效的请求参数")
+		return
+	}
+
+	source := filepath.Clean(strings.TrimSpace(req.FolderPath))
+	if source == "" {
+		jsonError(w, http.StatusBadRequest, "folder_path is required")
+		return
+	}
+	restoreRoot := getBaseFolder(req.RestorePath)
+	if err := os.MkdirAll(restoreRoot, 0o755); err != nil {
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("创建恢复目录失败: %v", err))
+		return
+	}
+
+	name := strings.TrimSpace(req.NewName)
+	if name == "" {
+		name = filepath.Base(source)
+	}
+	destPath := uniqueRestorePath(restoreRoot, name)
+	if err := os.Rename(source, destPath); err != nil {
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("恢复失败: %v", err))
+		return
+	}
+
+	wrPath := filepath.Join(destPath, workRecordFileName)
+	if _, err := os.Stat(wrPath); err == nil {
+		_ = markWorkRecordRestored(wrPath, destPath, time.Now())
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
+		"source":      source,
+		"destination": destPath,
+		"message":     fmt.Sprintf("已恢复到当前工作: %s", destPath),
+	})
+}
+
 type UpdateWorkRecordRequest struct {
 	FolderPath   string `json:"folder_path"`
 	Department   string `json:"department"`
@@ -1296,7 +1734,7 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 	targetFolderName := filepath.Base(currentFolderPath)
 	renamed := false
 	if req.RenameFolder && strings.TrimSpace(req.Title) != "" {
-		newFolderName, err := buildRenamedFolderName(filepath.Base(currentFolderPath), req.Title, parsed.Info.CreateTime)
+		newFolderName, err := buildRenamedFolderName(filepath.Base(currentFolderPath), req.Title, parsed.Info.TaskDate)
 		if err != nil {
 			jsonError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1349,6 +1787,15 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 		"title":        finalTitle,
 		"content":      strings.TrimSpace(body),
 		"core_content": coreContent,
+	})
+}
+
+func handleListSOPTemplates(w http.ResponseWriter, r *http.Request) {
+	templates := getSOPTemplates()
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"templates": templates,
+		"roots":     sopTemplateRoots(),
 	})
 }
 

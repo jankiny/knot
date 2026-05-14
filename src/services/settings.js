@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
   defaultDepartmentId: null,
   projects: [],
   defaultProjectId: null,
+  defaultSopTemplateId: 'default-task',
   // 归档扫描目录（扫描工作文件夹的位置）
   scanPath: '~/Desktop',
   // AI 日报设置
@@ -192,6 +193,14 @@ export function getDefaultProject() {
     return getProjectById(settings.defaultProjectId)
   }
   return null
+}
+
+export function getDefaultSopTemplateId() {
+  return getSettings().defaultSopTemplateId || 'default-task'
+}
+
+export function setDefaultSopTemplateId(id) {
+  saveSettings({ defaultSopTemplateId: id || 'default-task' })
 }
 
 // 清理邮件主题，用于生成文件夹名称

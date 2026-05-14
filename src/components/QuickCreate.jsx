@@ -40,12 +40,12 @@ function QuickCreate() {
     setDeptModalOpen(true)
   }
 
-  const handleDeptConfirm = async (target) => {
+  const handleDeptConfirm = async (target, sopTemplateId) => {
     setDeptModalOpen(false)
-    await createFolder(target)
+    await createFolder(target, sopTemplateId)
   }
 
-  const createFolder = async (target = null) => {
+  const createFolder = async (target = null, sopTemplateId = 'default-task') => {
     setCreating(true)
     try {
       const settings = getSettings()
@@ -69,7 +69,8 @@ function QuickCreate() {
         department: target?.type === 'department' ? target.name : null,
         project: target?.type === 'project' ? target.name : null,
         source: 'manual',
-        hash: await generateFolderHash(folderName)
+        hash: await generateFolderHash(folderName),
+        sop_template_id: sopTemplateId || 'default-task'
       }
 
       const result = await folderApi.create(requestData)
@@ -149,6 +150,7 @@ function QuickCreate() {
         onCancel={() => setDeptModalOpen(false)}
         title="选择归属"
         description="选择该任务的归属目标，用于后续按部门或按项目归档。"
+        enableSop
       />
     </div>
   )

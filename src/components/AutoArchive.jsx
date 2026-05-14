@@ -57,8 +57,8 @@ function AutoArchive() {
 
     const monthMap = new Map()
     folders.forEach((folder) => {
-      const createTime = folder.create_time || ''
-      const match = createTime.match(/^(\d{4})-(\d{2})/)
+      const taskDate = folder.task_date || folder.create_time || ''
+      const match = taskDate.match(/^(\d{4})-(\d{2})/)
       if (!match) return
 
       const year = match[1]
@@ -69,7 +69,7 @@ function AutoArchive() {
           key,
           label: `${year}年${parseInt(month, 10)}月`,
           folderPath: folder.path,
-          timestamp: new Date(createTime).getTime() || 0
+          timestamp: new Date(taskDate).getTime() || 0
         })
       }
     })
@@ -115,7 +115,7 @@ function AutoArchive() {
       if (!closestId) return
       const folderPath = closestId.replace('folder-', '')
       const folder = folders.find((f) => f.path === folderPath)
-      const match = folder?.create_time?.match(/^(\d{4})-(\d{2})/)
+      const match = (folder?.task_date || folder?.create_time || '').match(/^(\d{4})-(\d{2})/)
       if (match) setActiveMonthKey(`${match[1]}-${match[2]}`)
     }, {
       rootMargin: '-80px 0px 0px 0px',
@@ -458,7 +458,8 @@ function AutoArchive() {
             <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
               <Space>
                 {contentFolder.source && <Tag>{toSourceLabel(contentFolder.source)}</Tag>}
-                {contentFolder.create_time && <span>创建：{contentFolder.create_time}</span>}
+                {(contentFolder.task_date || contentFolder.create_time) && <span>任务时间：{contentFolder.task_date || contentFolder.create_time}</span>}
+                {contentFolder.create_time && contentFolder.task_date && <span>创建：{contentFolder.create_time}</span>}
               </Space>
             </div>
 

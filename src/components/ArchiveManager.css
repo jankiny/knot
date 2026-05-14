@@ -1,0 +1,75 @@
+.archive-manager {
+  width: 100%;
+}
+
+.archive-manager-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.archive-target-select {
+  min-width: 260px;
+  flex: 1.2;
+}
+
+.archive-year-select {
+  width: 120px;
+}
+
+.archive-search-input {
+  max-width: 320px;
+  flex: 1;
+}
+
+.archive-target-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.archive-target-option > span:last-child {
+  max-width: 260px;
+  overflow: hidden;
+  color: #999;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-manager-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-height: 240px;
+  color: #777;
+}
+
+.archive-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.archive-manager-item {
+  position: relative;
+}
+
+.load-more-btn {
+  align-self: center;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .archive-manager-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .archive-target-select,
+  .archive-search-input {
+    min-width: 100%;
+    max-width: none;
+  }
+}

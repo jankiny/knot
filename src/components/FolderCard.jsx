@@ -40,12 +40,13 @@ function getSourceLabel(source) {
   return SOURCE_LABEL_MAP[key] || source || UNKNOWN_LABEL
 }
 
-function FolderCard({ folder, onArchive, onEditDept, onViewContent, onOpenFolder }) {
+function FolderCard({ folder, onArchive, onEditDept, onViewContent, onOpenFolder, archiveLabel = BTN_ARCHIVE, archiveIcon = <SendOutlined />, archiveDisabled, archiveLoading = false }) {
   const title = getDisplayTitle(folder)
   const hasDept = Boolean(folder?.department && folder.department.trim())
   const hasProject = Boolean(folder?.project && folder.project.trim())
   const hasArchiveTarget = hasProject || hasDept
   const targetLabel = hasProject ? folder.project : (hasDept ? folder.department : UNSET_TARGET_LABEL)
+  const displayTime = folder.task_date || folder.create_time
 
   return (
     <Card className="folder-card" size="small">
@@ -73,18 +74,19 @@ function FolderCard({ folder, onArchive, onEditDept, onViewContent, onOpenFolder
               <Button
                 size="small"
                 type="primary"
-                icon={<SendOutlined />}
+                icon={archiveIcon}
                 onClick={() => onArchive(folder)}
-                disabled={!hasArchiveTarget}
+                disabled={archiveDisabled !== undefined ? archiveDisabled : !hasArchiveTarget}
+                loading={archiveLoading}
               >
-                {BTN_ARCHIVE}
+                {archiveLabel}
               </Button>
             </Space>
           </div>
         </div>
 
         <div className="folder-row folder-row-meta">
-          {folder.create_time && <Tag icon={<ClockCircleOutlined />}>{folder.create_time}</Tag>}
+          {displayTime && <Tag icon={<ClockCircleOutlined />}>{displayTime}</Tag>}
           {folder.source && <Tag color="blue">{getSourceLabel(folder.source)}</Tag>}
           <Tooltip title={EDIT_TARGET_TIP}>
             <Tag

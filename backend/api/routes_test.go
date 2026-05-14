@@ -74,6 +74,64 @@ func TestDoArchiveMove_WithoutYearFolder(t *testing.T) {
 	}
 }
 
+func TestHandleArchiveRestore_MovesBackToWorkFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	archiveDir := filepath.Join(tmpDir, "archive")
+	workDir := filepath.Join(tmpDir, "work")
+	source := filepath.Join(archiveDir, "2026.04.20_task")
+	_ = os.MkdirAll(source, 0o755)
+	_ = os.MkdirAll(workDir, 0o755)
+
+	record := `---
+type: task
+schema_version: 3
+title: Restore Task
+status: archived
+created: 2026-04-20
+updated: 2026-04-20
+task_date: 2026-04-20
+source: manual
+department: ops
+project_path: C:/Archive
+folder_name: 2026.04.20_task
+archive_status: local_archive
+hash: h001
+---
+# Restore Task
+`
+	_ = os.WriteFile(filepath.Join(source, workRecordFileName), []byte(record), 0o644)
+
+	router := SetupRoutes()
+	body, _ := json.Marshal(ArchiveRestoreRequest{
+		FolderPath:  source,
+		RestorePath: workDir,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/archive/restore", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	dest := filepath.Join(workDir, "2026.04.20_task")
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("expected restored folder: %v", err)
+	}
+	updated, _ := os.ReadFile(filepath.Join(dest, workRecordFileName))
+	text := string(updated)
+	for _, expect := range []string{
+		"status: active",
+		"archive_status: local_active",
+		"project_path: " + filepath.ToSlash(dest),
+		"## 恢复记录",
+	} {
+		if !strings.Contains(text, expect) {
+			t.Fatalf("missing %q in restored record:\n%s", expect, text)
+		}
+	}
+}
+
 func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 	router := SetupRoutes()
 	endpoints := []struct {
@@ -91,6 +149,9 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		{"POST", "/api/archive/move"},
 		{"POST", "/api/archive/batch-move"},
 		{"POST", "/api/archive/update-work-record"},
+		{"GET", "/api/archive/list"},
+		{"POST", "/api/archive/restore"},
+		{"GET", "/api/sop/templates"},
 		{"POST", "/api/report/daily/generate"},
 	}
 
@@ -154,6 +215,120 @@ func TestHandleCreateFolder_ManualStructure_NewTemplate(t *testing.T) {
 		if !strings.Contains(wr, expect) {
 			t.Fatalf("work record missing %q\n%s", expect, wr)
 		}
+	}
+}
+
+func TestHandleCreateFolder_UsesTaskDateFromRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+
+	body := FolderRequest{
+		BasePath:      tmpDir,
+		FolderName:    "2026.05.01_old_task",
+		Subject:       "Old Task",
+		Date:          "2026-05-01T10:30:00Z",
+		Source:        "manual",
+		SOPTemplateID: "default-task",
+	}
+
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	wrContent, _ := os.ReadFile(filepath.Join(tmpDir, "2026.05.01_old_task", workRecordFileName))
+	wr := string(wrContent)
+	if !strings.Contains(wr, "task_date: 2026-05-01") {
+		t.Fatalf("expected task_date from request, got:\n%s", wr)
+	}
+
+	parsed, err := readWorkRecord(filepath.Join(tmpDir, "2026.05.01_old_task", workRecordFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Info.TaskDate != "2026-05-01" {
+		t.Fatalf("expected task date 2026-05-01, got %s", parsed.Info.TaskDate)
+	}
+}
+
+func TestHandleCreateFolder_LearningNotesSOP(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+
+	body := FolderRequest{
+		BasePath:      tmpDir,
+		FolderName:    "2026.05.02_learning",
+		Subject:       "Learning",
+		Date:          "2026-05-02",
+		Source:        "manual",
+		SOPTemplateID: "learning-notes",
+	}
+
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	folderPath := filepath.Join(tmpDir, "2026.05.02_learning")
+	for _, p := range []string{
+		filepath.Join(folderPath, "00_学习资料"),
+		filepath.Join(folderPath, "01_学习笔记", "学习笔记.md"),
+		filepath.Join(folderPath, "02_课后作业", "作业记录.md"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected SOP path to exist: %s (%v)", p, err)
+		}
+	}
+}
+
+func TestHandleListSOPTemplates_SeedTemplatesHavePaths(t *testing.T) {
+	router := SetupRoutes()
+	req := httptest.NewRequest(http.MethodGet, "/api/sop/templates", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Templates []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"templates"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+
+	foundDefault := false
+	foundLearning := false
+	for _, tpl := range resp.Templates {
+		if tpl.ID == "default-task" {
+			foundDefault = true
+			if strings.TrimSpace(tpl.Path) == "" {
+				t.Fatalf("expected default-task to have a template folder path")
+			}
+		}
+		if tpl.ID == "learning-notes" {
+			foundLearning = true
+			if strings.TrimSpace(tpl.Path) == "" {
+				t.Fatalf("expected learning-notes to have a template folder path")
+			}
+		}
+	}
+	if !foundDefault || !foundLearning {
+		t.Fatalf("expected seeded templates, got %+v", resp.Templates)
 	}
 }
 
