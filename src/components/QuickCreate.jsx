@@ -10,13 +10,20 @@ import './QuickCreate.css'
 const { Title, Text } = Typography
 const { TextArea } = Input
 
-function buildQuickCreateFolderName(settings, workContent, selectedDate) {
+export function formatQuickCreateDate(selectedDate) {
+  if (selectedDate?.format) {
+    return selectedDate.format('YYYY-MM-DD')
+  }
+  return dayjs(selectedDate).format('YYYY-MM-DD')
+}
+
+export function buildQuickCreateFolderName(settings, workContent, selectedDate) {
   const content = workContent.trim()
   if (!content) return ''
 
   return formatFolderName(settings.folderNameFormat, {
     subject: content,
-    date: selectedDate.toISOString(),
+    date: formatQuickCreateDate(selectedDate),
     from: ''
   })
 }
@@ -60,7 +67,7 @@ function QuickCreate() {
         folder_name: folderName,
         mail_id: null,
         subject: workContent.trim(),
-        date: selectedDate.toISOString(),
+        date: formatQuickCreateDate(selectedDate),
         from_addr: '',
         body: '',
         use_sub_folder: false,
