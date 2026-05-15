@@ -55,7 +55,7 @@ function getAutoUpdater() {
     sendUpdateState({
       status: 'error',
       progress: null,
-      message: '自动更新模块加载失败，请下载安装包手动更新'
+      message: `自动更新模块加载失败：${serializeUpdateError(error)}`
     })
     return null
   }
