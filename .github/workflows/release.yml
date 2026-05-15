@@ -1,9 +1,9 @@
 # 双分支自动打包发布工作流
 #
 # 版本号策略：
-# - dev 分支：产生 1.0.23-alpha 格式（预发布版）
-# - main 分支：产生 1.0.50 格式（正式版）
-# - 其中 1.0 为 package.json 中的主版本，23/50 为构建号
+# - dev 分支：产生 1.2.0-alpha 格式（预发布版）
+# - main 分支：产生 1.2.0 格式（正式版）
+# - 其中 1.2 为 package.json 中的主版本，补丁号按当前主版本已有 tag 独立递增
 
 name: Release
 
@@ -44,6 +44,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -55,24 +58,46 @@ jobs:
         run: |
           # 读取 package.json 中的版本号 (如 1.0.0) 并提取前两位 (1.0)
           BASE_VERSION=$(node -p "let v=require('./package.json').version.split('.'); v.slice(0,2).join('.')")
-          BUILD_NUMBER=${{ github.run_number }}
           BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          ESCAPED_BASE_VERSION=$(printf '%s' "$BASE_VERSION" | sed 's/\./\\./g')
+
+          git fetch --tags --force
 
           if [ "$BRANCH_NAME" = "dev" ]; then
-            # dev 分支：1.0.23-alpha
-            FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}-alpha"
+            TAG_REGEX="^v${ESCAPED_BASE_VERSION}\.([0-9]+)-alpha$"
+          else
+            TAG_REGEX="^v${ESCAPED_BASE_VERSION}\.([0-9]+)$"
+          fi
+
+          MAX_PATCH=-1
+          while IFS= read -r TAG_NAME; do
+            if [[ "$TAG_NAME" =~ $TAG_REGEX ]]; then
+              PATCH_NUMBER="${BASH_REMATCH[1]}"
+              if [ "$PATCH_NUMBER" -gt "$MAX_PATCH" ]; then
+                MAX_PATCH="$PATCH_NUMBER"
+              fi
+            fi
+          done < <(git tag -l "v${BASE_VERSION}.*")
+
+          NEXT_PATCH=$((MAX_PATCH + 1))
+
+          if [ "$BRANCH_NAME" = "dev" ]; then
+            # dev 分支：1.2.0-alpha
+            FULL_VERSION="${BASE_VERSION}.${NEXT_PATCH}-alpha"
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
             echo "release_tag=v${FULL_VERSION}" >> $GITHUB_OUTPUT
             echo "release_name=v${FULL_VERSION}" >> $GITHUB_OUTPUT
           else
-            # main/master 分支：1.0.50
-            FULL_VERSION="${BASE_VERSION}.${BUILD_NUMBER}"
+            # main/master 分支：1.2.0
+            FULL_VERSION="${BASE_VERSION}.${NEXT_PATCH}"
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
             echo "release_tag=v${FULL_VERSION}" >> $GITHUB_OUTPUT
             echo "release_name=v${FULL_VERSION}" >> $GITHUB_OUTPUT
           fi
 
           echo "分支: $BRANCH_NAME"
+          echo "主版本: $BASE_VERSION"
+          echo "补丁号: $NEXT_PATCH"
           echo "完整版本: $FULL_VERSION"
           echo "version=$BASE_VERSION" >> $GITHUB_OUTPUT
           echo "full_version=$FULL_VERSION" >> $GITHUB_OUTPUT
