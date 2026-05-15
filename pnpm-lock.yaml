@@ -23,6 +23,9 @@ importers:
       electron-updater:
         specifier: ^6.8.3
         version: 6.8.3
+      fs-extra:
+        specifier: 10.1.0
+        version: 10.1.0
       react:
         specifier: ^18.2.0
         version: 18.3.1

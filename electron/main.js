@@ -2,7 +2,6 @@ const { app, BrowserWindow, shell, Menu, ipcMain, dialog, safeStorage, session }
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
-const { autoUpdater } = require('electron-updater')
 
 // 禁用开发时的 CSP 警告
 if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
@@ -11,6 +10,7 @@ if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
 
 let mainWindow
 let backendProcess
+let autoUpdater
 let updateInitialized = false
 let updateState = {
   status: 'idle',
@@ -44,15 +44,35 @@ function isAutoUpdateSupported() {
   return app.isPackaged
 }
 
+function getAutoUpdater() {
+  if (autoUpdater) return autoUpdater
+
+  try {
+    autoUpdater = require('electron-updater').autoUpdater
+    return autoUpdater
+  } catch (error) {
+    console.error('加载自动更新模块失败:', error)
+    sendUpdateState({
+      status: 'error',
+      progress: null,
+      message: '自动更新模块加载失败，请下载安装包手动更新'
+    })
+    return null
+  }
+}
+
 function setupAutoUpdater() {
   if (updateInitialized) return
+  const updater = getAutoUpdater()
+  if (!updater) return
+
   updateInitialized = true
 
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.allowPrerelease = app.getVersion().includes('-')
+  updater.autoDownload = true
+  updater.autoInstallOnAppQuit = true
+  updater.allowPrerelease = app.getVersion().includes('-')
 
-  autoUpdater.on('checking-for-update', () => {
+  updater.on('checking-for-update', () => {
     sendUpdateState({
       status: 'checking',
       progress: null,
@@ -60,7 +80,7 @@ function setupAutoUpdater() {
     })
   })
 
-  autoUpdater.on('update-available', (info) => {
+  updater.on('update-available', (info) => {
     sendUpdateState({
       status: 'available',
       availableVersion: info?.version || null,
@@ -69,7 +89,7 @@ function setupAutoUpdater() {
     })
   })
 
-  autoUpdater.on('update-not-available', () => {
+  updater.on('update-not-available', () => {
     sendUpdateState({
       status: 'not-available',
       availableVersion: null,
@@ -78,7 +98,7 @@ function setupAutoUpdater() {
     })
   })
 
-  autoUpdater.on('download-progress', (progress) => {
+  updater.on('download-progress', (progress) => {
     sendUpdateState({
       status: 'downloading',
       progress: {
@@ -90,7 +110,7 @@ function setupAutoUpdater() {
     })
   })
 
-  autoUpdater.on('update-downloaded', (info) => {
+  updater.on('update-downloaded', (info) => {
     sendUpdateState({
       status: 'downloaded',
       availableVersion: info?.version || updateState.availableVersion,
@@ -99,7 +119,7 @@ function setupAutoUpdater() {
     })
   })
 
-  autoUpdater.on('error', (error) => {
+  updater.on('error', (error) => {
     sendUpdateState({
       status: 'error',
       progress: null,
@@ -118,9 +138,11 @@ async function checkForUpdates() {
   }
 
   setupAutoUpdater()
+  const updater = getAutoUpdater()
+  if (!updater) return updateState
 
   try {
-    await autoUpdater.checkForUpdates()
+    await updater.checkForUpdates()
     return updateState
   } catch (error) {
     return sendUpdateState({
@@ -378,9 +400,11 @@ if (!gotTheLock) {
       }
 
       setupAutoUpdater()
+      const updater = getAutoUpdater()
+      if (!updater) return updateState
 
       try {
-        await autoUpdater.downloadUpdate()
+        await updater.downloadUpdate()
         return updateState
       } catch (error) {
         return sendUpdateState({
@@ -401,7 +425,10 @@ if (!gotTheLock) {
 
       stopBackend()
       setImmediate(() => {
-        autoUpdater.quitAndInstall(false, true)
+        const updater = getAutoUpdater()
+        if (updater) {
+          updater.quitAndInstall(false, true)
+        }
       })
 
       return {
