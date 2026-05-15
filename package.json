@@ -2,7 +2,7 @@
   "name": "knot",
   "version": "1.3.0",
   "description": "办公数字化工具 - 邮件驱动的工作流管理",
-  "homepage": "https://github.com/jankiny/",
+  "homepage": "https://github.com/jankiny/knot",
   "author": {
     "name": "Jankiny",
     "email": "yangzlnn@foxmail.com"
@@ -26,6 +26,7 @@
     "antd": "^5.12.0",
     "axios": "^1.6.0",
     "dayjs": "^1.11.19",
+    "electron-updater": "^6.8.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
@@ -46,6 +47,13 @@
     "directories": {
       "output": "dist-electron"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jankiny",
+        "repo": "knot"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -85,6 +93,7 @@
     },
     "linux": {
       "target": [
+        "AppImage",
         "deb"
       ],
       "category": "Office",

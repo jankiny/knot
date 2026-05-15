@@ -46,6 +46,32 @@
   margin-top: 16px;
 }
 
+.about-update-status {
+  width: 100%;
+  margin-top: 12px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.about-update-status-error {
+  color: #cf1322;
+}
+
+.about-update-status-downloaded {
+  color: #389e0d;
+}
+
+.about-update-progress {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.about-install-button {
+  min-width: 180px;
+  margin-top: 12px;
+}
+
 .about-actions .ant-btn {
   background: #f7f8fa;
   border-color: #edf0f3;

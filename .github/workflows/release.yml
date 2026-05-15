@@ -188,7 +188,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-build-${{ needs.prepare.outputs.full_version }}
-          path: dist-electron/*.exe
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.exe.blockmap
+            dist-electron/latest.yml
           retention-days: 3
           if-no-files-found: error
 
@@ -276,6 +279,8 @@ jobs:
           path: |
             dist-electron/*.deb
             dist-electron/*.AppImage
+            dist-electron/*.AppImage.blockmap
+            dist-electron/latest-linux.yml
           retention-days: 3
           if-no-files-found: error
 

@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, Menu, ipcMain, dialog, safeStorage, session }
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+const { autoUpdater } = require('electron-updater')
 
 // 禁用开发时的 CSP 警告
 if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
@@ -10,6 +11,125 @@ if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
 
 let mainWindow
 let backendProcess
+let updateInitialized = false
+let updateState = {
+  status: 'idle',
+  currentVersion: app.getVersion(),
+  availableVersion: null,
+  progress: null,
+  message: ''
+}
+
+function sendUpdateState(patch) {
+  updateState = {
+    ...updateState,
+    ...patch,
+    currentVersion: app.getVersion()
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', updateState)
+  }
+
+  return updateState
+}
+
+function serializeUpdateError(error) {
+  if (!error) return '检查更新失败'
+  if (typeof error === 'string') return error
+  return error.message || '检查更新失败'
+}
+
+function isAutoUpdateSupported() {
+  return app.isPackaged
+}
+
+function setupAutoUpdater() {
+  if (updateInitialized) return
+  updateInitialized = true
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.allowPrerelease = app.getVersion().includes('-')
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateState({
+      status: 'checking',
+      progress: null,
+      message: '正在检查更新...'
+    })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateState({
+      status: 'available',
+      availableVersion: info?.version || null,
+      progress: null,
+      message: '发现新版本，正在下载...'
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    sendUpdateState({
+      status: 'not-available',
+      availableVersion: null,
+      progress: null,
+      message: '当前已是最新版本'
+    })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateState({
+      status: 'downloading',
+      progress: {
+        percent: Math.max(0, Math.min(100, progress?.percent || 0)),
+        transferred: progress?.transferred || 0,
+        total: progress?.total || 0
+      },
+      message: '正在下载更新...'
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateState({
+      status: 'downloaded',
+      availableVersion: info?.version || updateState.availableVersion,
+      progress: { percent: 100 },
+      message: '更新已下载，重启应用后安装'
+    })
+  })
+
+  autoUpdater.on('error', (error) => {
+    sendUpdateState({
+      status: 'error',
+      progress: null,
+      message: serializeUpdateError(error)
+    })
+  })
+}
+
+async function checkForUpdates() {
+  if (!isAutoUpdateSupported()) {
+    return sendUpdateState({
+      status: 'unsupported',
+      progress: null,
+      message: '开发环境不支持自动更新，请使用打包后的应用检查更新'
+    })
+  }
+
+  setupAutoUpdater()
+
+  try {
+    await autoUpdater.checkForUpdates()
+    return updateState
+  } catch (error) {
+    return sendUpdateState({
+      status: 'error',
+      progress: null,
+      message: serializeUpdateError(error)
+    })
+  }
+}
 
 function createWindow() {
   // 隐藏菜单栏
@@ -240,6 +360,55 @@ if (!gotTheLock) {
       event.returnValue = app.getVersion()
     })
 
+    ipcMain.handle('update-get-status', () => {
+      return updateState
+    })
+
+    ipcMain.handle('update-check', async () => {
+      return checkForUpdates()
+    })
+
+    ipcMain.handle('update-download', async () => {
+      if (!isAutoUpdateSupported()) {
+        return sendUpdateState({
+          status: 'unsupported',
+          progress: null,
+          message: '开发环境不支持自动更新，请使用打包后的应用检查更新'
+        })
+      }
+
+      setupAutoUpdater()
+
+      try {
+        await autoUpdater.downloadUpdate()
+        return updateState
+      } catch (error) {
+        return sendUpdateState({
+          status: 'error',
+          progress: null,
+          message: serializeUpdateError(error)
+        })
+      }
+    })
+
+    ipcMain.handle('update-install', () => {
+      if (updateState.status !== 'downloaded') {
+        return {
+          ok: false,
+          message: '更新尚未下载完成'
+        }
+      }
+
+      stopBackend()
+      setImmediate(() => {
+        autoUpdater.quitAndInstall(false, true)
+      })
+
+      return {
+        ok: true
+      }
+    })
+
     // 窗口控制事件
     ipcMain.handle('window-minimize', () => {
       if (mainWindow) mainWindow.minimize()
@@ -300,6 +469,12 @@ if (!gotTheLock) {
 
     setTimeout(() => {
       createWindow()
+
+      if (isAutoUpdateSupported()) {
+        setTimeout(() => {
+          checkForUpdates()
+        }, 15000)
+      }
     }, 1000)
 
     app.on('activate', () => {

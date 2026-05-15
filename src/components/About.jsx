@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Button, Modal, Space, Typography, message } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Modal, Progress, Space, Typography, message } from 'antd'
 import {
   CopyOutlined,
   GithubOutlined,
@@ -30,9 +30,53 @@ const openExternal = async (url) => {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+const isBusyStatus = (status) => ['checking', 'available', 'downloading'].includes(status)
+
 function About() {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [checking, setChecking] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState({
+    status: 'idle',
+    currentVersion: null,
+    availableVersion: null,
+    progress: null,
+    message: ''
+  })
+
+  useEffect(() => {
+    let mounted = true
+
+    if (window.electronAPI?.getUpdateStatus) {
+      window.electronAPI.getUpdateStatus().then((status) => {
+        if (mounted && status) {
+          setUpdateStatus(status)
+        }
+      })
+    }
+
+    if (window.electronAPI?.onUpdateStatus) {
+      window.electronAPI.onUpdateStatus((status) => {
+        if (status) {
+          setUpdateStatus(status)
+        }
+      })
+    }
+
+    return () => {
+      mounted = false
+      window.electronAPI?.removeUpdateStatusListener?.()
+    }
+  }, [])
+
+  const checking = isBusyStatus(updateStatus.status)
+  const progressPercent = Math.round(updateStatus.progress?.percent || 0)
+
+  const updateText = useMemo(() => {
+    if (!updateStatus.message) return ''
+    if (updateStatus.availableVersion) {
+      return `${updateStatus.message} v${updateStatus.availableVersion}`
+    }
+    return updateStatus.message
+  }, [updateStatus])
 
   const handleCopyEmail = async () => {
     try {
@@ -44,12 +88,24 @@ function About() {
   }
 
   const handleCheckUpdate = async () => {
-    setChecking(true)
-    try {
+    if (!window.electronAPI?.checkForUpdates) {
       await openExternal(RELEASE_URL)
       message.info('已打开版本发布页面')
-    } finally {
-      setChecking(false)
+      return
+    }
+
+    const status = await window.electronAPI.checkForUpdates()
+    if (status?.status === 'unsupported') {
+      message.info(status.message)
+    } else if (status?.status === 'error') {
+      message.error(status.message || '检查更新失败')
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    const result = await window.electronAPI?.installUpdate?.()
+    if (!result?.ok) {
+      message.error(result?.message || '更新尚未下载完成')
     }
   }
 
@@ -75,10 +131,31 @@ function About() {
           icon={<ReloadOutlined />}
           loading={checking}
           onClick={handleCheckUpdate}
+          disabled={checking}
           className="about-update-button"
         >
           检查更新
         </Button>
+
+        {updateText && (
+          <div className={`about-update-status about-update-status-${updateStatus.status}`}>
+            {updateText}
+          </div>
+        )}
+
+        {updateStatus.status === 'downloading' && (
+          <Progress
+            className="about-update-progress"
+            percent={progressPercent}
+            size="small"
+          />
+        )}
+
+        {updateStatus.status === 'downloaded' && (
+          <Button type="primary" onClick={handleInstallUpdate} className="about-install-button">
+            重启并安装
+          </Button>
+        )}
 
         <Space className="about-actions">
           <Button icon={<GithubOutlined />} onClick={() => openExternal(PROJECT_URL)}>
@@ -98,7 +175,7 @@ function About() {
         onCancel={() => setFeedbackOpen(false)}
         footer={[
           <Button key="copy" icon={<CopyOutlined />} onClick={handleCopyEmail}>
-            复制邮件
+            复制邮箱
           </Button>,
           <Button key="code" icon={<GithubOutlined />} onClick={() => openExternal(PROJECT_URL)}>
             查看代码
@@ -109,10 +186,10 @@ function About() {
         ]}
       >
         <p>
-          如果您在使用 Knot 时遇到任何问题或有任何建议，您可以通过电子邮件与我们联系。
+          如果您在使用 Knot 时遇到任何问题或有任何建议，可以通过电子邮件与我们联系。
         </p>
         <p className="about-email">{FEEDBACK_EMAIL}</p>
-        <p>或者在 GitHub 上提交 issue。</p>
+        <p>也可以在 GitHub 上提交 issue。</p>
       </Modal>
     </div>
   )

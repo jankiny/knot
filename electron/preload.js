@@ -11,6 +11,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 获取版本号
   version: appVersion,
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  getUpdateStatus: () => ipcRenderer.invoke('update-get-status'),
+  checkForUpdates: () => ipcRenderer.invoke('update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('update-download'),
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+  onUpdateStatus: (callback) => {
+    ipcRenderer.on('update-status', (event, status) => callback(status))
+  },
+  removeUpdateStatusListener: () => {
+    ipcRenderer.removeAllListeners('update-status')
+  },
 
   // 获取桌面路径
   getDesktopPath: () => {
