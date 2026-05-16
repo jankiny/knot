@@ -16,6 +16,7 @@ let updateState = {
   status: 'idle',
   currentVersion: app.getVersion(),
   availableVersion: null,
+  previewUpdates: false,
   progress: null,
   message: ''
 }
@@ -44,6 +45,21 @@ function isAutoUpdateSupported() {
   return app.isPackaged
 }
 
+function readUserSettings() {
+  const settingsPath = path.join(app.getPath('userData'), 'knot-settings.json')
+  try {
+    if (!fs.existsSync(settingsPath)) return {}
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+  } catch (error) {
+    console.error('读取用户设置失败:', error)
+    return {}
+  }
+}
+
+function isPreviewUpdatesEnabled() {
+  return readUserSettings().enablePreviewUpdates === true
+}
+
 function getAutoUpdater() {
   if (autoUpdater) return autoUpdater
 
@@ -62,15 +78,17 @@ function getAutoUpdater() {
 }
 
 function setupAutoUpdater() {
-  if (updateInitialized) return
   const updater = getAutoUpdater()
   if (!updater) return
 
+  updater.allowPrerelease = isPreviewUpdatesEnabled()
+  sendUpdateState({ previewUpdates: updater.allowPrerelease })
+
+  if (updateInitialized) return
   updateInitialized = true
 
   updater.autoDownload = true
   updater.autoInstallOnAppQuit = true
-  updater.allowPrerelease = app.getVersion().includes('-')
 
   updater.on('checking-for-update', () => {
     sendUpdateState({

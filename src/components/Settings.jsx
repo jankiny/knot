@@ -221,6 +221,14 @@ function Settings() {
     })
   }
 
+  const handlePreviewUpdatesChange = async (checked) => {
+    updateSetting('enablePreviewUpdates', checked)
+
+    if (window.electronAPI?.saveSetting) {
+      await window.electronAPI.saveSetting('enablePreviewUpdates', checked)
+    }
+  }
+
   const handleSelectFolder = async () => {
     if (window.electronAPI?.selectFolder) {
       const selectedPath = await window.electronAPI.selectFolder()
@@ -272,6 +280,22 @@ function Settings() {
               <Radio.Button value="integrated" style={{ width: 120, textAlign: 'center' }}>一体化</Radio.Button>
               <Radio.Button value="classic" style={{ width: 120, textAlign: 'center' }}>经典</Radio.Button>
             </Radio.Group>
+          </div>
+
+          <div className="settings-section" style={{ marginTop: 24 }}>
+            <div className="section-header">
+              <h3>更新通道</h3>
+            </div>
+            <div className="setting-item inline">
+              <label>启用预览版更新</label>
+              <Switch
+                checked={!!settings.enablePreviewUpdates}
+                onChange={handlePreviewUpdatesChange}
+              />
+            </div>
+            <p className="setting-hint">
+              关闭时只跟踪正式版；开启后会允许检查 alpha/preview 预览版。
+            </p>
           </div>
         </div>
 

@@ -43,7 +43,9 @@ const DEFAULT_SETTINGS = {
   aiApiUrl: '',
   aiModel: '',
   aiApiKeyEncrypted: null,
-  enableAiDailyReport: false
+  enableAiDailyReport: false,
+  // 是否跟踪 preview/alpha 预览版更新
+  enablePreviewUpdates: false
 }
 
 export function getSettings() {
