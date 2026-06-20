@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Drawer, Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor, Radio, Modal, Tooltip } from 'antd'
 import { MailOutlined, LockOutlined, GlobalOutlined, FolderOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { mailApi, sopApi, USE_MOCK } from '../services/api'
-import { getSettings, saveSettings, formatFolderName, setDefaultSopTemplateId } from '../services/settings'
+import { BUILTIN_AI_MODELS, DEFAULT_AI_MODEL_ID, getSettings, saveSettings, formatFolderName, setDefaultSopTemplateId } from '../services/settings'
 import DepartmentManager from './DepartmentManager'
 import ProjectManager from './ProjectManager'
 import './Settings.css'
@@ -27,28 +27,14 @@ const SAVE_FORMAT_OPTIONS = [
   { label: 'PDF（便于打印）', value: 'pdf' }
 ]
 
-const BUILTIN_AI_MODELS = [
-  {
-    label: 'DeepSeek V4 Flash',
-    value: 'deepseek-v4-flash',
-    apiUrl: 'https://api.deepseek.com',
-    provider: 'DeepSeek'
-  },
-  {
-    label: 'DeepSeek V4 Pro',
-    value: 'deepseek-v4-pro',
-    apiUrl: 'https://api.deepseek.com',
-    provider: 'DeepSeek'
-  }
-]
-
 function Settings() {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [settings, setSettings] = useState(getSettings())
   const [formatPreset, setFormatPreset] = useState('preset')
-  const [aiApiKey, setAiApiKey] = useState('')
   const [customModelOpen, setCustomModelOpen] = useState(false)
+  const [editingAiModel, setEditingAiModel] = useState(null)
+  const [modelApiKey, setModelApiKey] = useState('')
   const [customModelForm] = Form.useForm()
   const [sopTemplates, setSopTemplates] = useState([])
   const [sopRoots, setSopRoots] = useState([])
@@ -71,16 +57,6 @@ function Settings() {
           console.error('解密密码失败:', e)
         }
       }
-
-      let decryptedAiKey = ''
-      if (s.aiApiKeyEncrypted && window.electronAPI?.decryptPassword) {
-        try {
-          decryptedAiKey = await window.electronAPI.decryptPassword(s.aiApiKeyEncrypted) || ''
-        } catch (e) {
-          console.error('解密 AI Key 失败:', e)
-        }
-      }
-      setAiApiKey(decryptedAiKey)
 
       // 加载邮件服务器配置到表单
       form.setFieldsValue({
@@ -162,77 +138,111 @@ function Settings() {
     setSettings(newSettings)
   }
 
-  const customAiModels = settings.aiCustomModels || []
-  const aiModelOptions = [
-    {
-      label: '内置模型',
-      options: BUILTIN_AI_MODELS.map((model) => ({
-        label: model.label,
-        value: model.value
-      }))
-    },
-    customAiModels.length > 0 && {
-      label: '自定义 OpenAI 格式模型',
-      options: customAiModels.map((model) => ({
-        label: model.name || model.model,
-        value: model.model
-      }))
+  const aiModels = settings.aiModels || BUILTIN_AI_MODELS
+  const selectedAiModel = aiModels.find((model) => model.id === settings.aiSelectedModelId) ||
+    aiModels.find((model) => model.id === DEFAULT_AI_MODEL_ID) ||
+    aiModels[0]
+
+  const encryptModelApiKey = async () => {
+    const key = modelApiKey.trim()
+    if (!key) {
+      return editingAiModel?.apiKeyEncrypted || null
     }
-  ].filter(Boolean)
-
-  const handleAiModelChange = (modelValue) => {
-    const builtin = BUILTIN_AI_MODELS.find((model) => model.value === modelValue)
-    const custom = customAiModels.find((model) => model.model === modelValue)
-    const updates = { aiModel: modelValue }
-
-    if (builtin?.apiUrl) {
-      updates.aiApiUrl = builtin.apiUrl
-    } else if (custom?.apiUrl) {
-      updates.aiApiUrl = custom.apiUrl
+    if (!window.electronAPI?.encryptPassword) {
+      message.error('API Key 保存失败')
+      return undefined
     }
-
-    const newSettings = saveSettings(updates)
-    setSettings(newSettings)
+    try {
+      return await window.electronAPI.encryptPassword(key)
+    } catch (e) {
+      console.error('加密 AI Key 失败:', e)
+      message.error('API Key 保存失败')
+      return undefined
+    }
   }
 
-  const handleAddCustomModel = async () => {
+  const openAiModelModal = async (model = null) => {
+    setEditingAiModel(model)
+    customModelForm.setFieldsValue({
+      name: model?.name || '',
+      provider: model?.provider || '',
+      apiUrl: model?.apiUrl || '',
+      modelId: model?.modelId || ''
+    })
+
+    let decryptedKey = ''
+    if (model?.apiKeyEncrypted && window.electronAPI?.decryptPassword) {
+      try {
+        decryptedKey = await window.electronAPI.decryptPassword(model.apiKeyEncrypted) || ''
+      } catch (e) {
+        console.error('解密 AI Key 失败:', e)
+      }
+    }
+    setModelApiKey(decryptedKey)
+    setCustomModelOpen(true)
+  }
+
+  const handleSaveAiModel = async () => {
     try {
       const values = await customModelForm.validateFields()
-      const model = values.model.trim()
-      const apiUrl = values.apiUrl.trim().replace(/\/+$/, '')
-      const name = (values.name || model).trim()
-      if (BUILTIN_AI_MODELS.some((item) => item.value === model) || customAiModels.some((item) => item.model === model)) {
+      const apiKeyEncrypted = await encryptModelApiKey()
+      if (apiKeyEncrypted === undefined) {
+        return
+      }
+
+      const modelId = values.modelId.trim()
+      const id = editingAiModel?.id || `custom-${Date.now()}`
+      const duplicate = aiModels.some((model) => model.id !== id && model.modelId === modelId)
+      if (duplicate) {
         message.warning('该模型 ID 已存在')
         return
       }
-      const nextModels = [
-        ...customAiModels,
-        { name, model, apiUrl, provider: 'custom-openai' }
-      ]
+
+      const nextModel = {
+        id,
+        name: (values.name || modelId).trim(),
+        provider: (values.provider || 'custom-openai').trim(),
+        apiUrl: values.apiUrl.trim().replace(/\/+$/, ''),
+        modelId,
+        apiKeyEncrypted,
+        builtin: !!editingAiModel?.builtin
+      }
+      const nextModels = aiModels.map((model) => (model.id === id ? nextModel : model))
+      if (!editingAiModel) {
+        nextModels.push(nextModel)
+      }
       const newSettings = saveSettings({
-        aiCustomModels: nextModels,
-        aiModel: model,
-        aiApiUrl: apiUrl
+        aiModels: nextModels,
+        aiSelectedModelId: id
       })
       setSettings(newSettings)
       setCustomModelOpen(false)
+      setEditingAiModel(null)
+      setModelApiKey('')
       customModelForm.resetFields()
-      message.success('自定义模型已添加')
+      message.success(editingAiModel ? '模型配置已更新' : '模型配置已添加')
     } catch {
       // antd form validation already marks invalid fields
     }
   }
 
-  const handleRemoveCustomModel = (modelValue) => {
-    const nextModels = customAiModels.filter((model) => model.model !== modelValue)
-    const updates = { aiCustomModels: nextModels }
-    if (settings.aiModel === modelValue) {
-      updates.aiModel = 'deepseek-v4-flash'
-      updates.aiApiUrl = 'https://api.deepseek.com'
+  const handleDeleteAiModel = (modelId) => {
+    const model = aiModels.find((item) => item.id === modelId)
+    if (!model || model.builtin) return
+
+    const nextModels = aiModels.filter((item) => item.id !== modelId)
+    const updates = { aiModels: nextModels }
+    if (settings.aiSelectedModelId === modelId) {
+      updates.aiSelectedModelId = DEFAULT_AI_MODEL_ID
     }
     const newSettings = saveSettings(updates)
     setSettings(newSettings)
-    message.success('自定义模型已删除')
+    message.success('模型配置已删除')
+  }
+
+  const handleSelectAiModel = (modelId) => {
+    const newSettings = saveSettings({ aiSelectedModelId: modelId })
+    setSettings(newSettings)
   }
 
   const handleFormatPresetChange = (value) => {
@@ -262,31 +272,6 @@ function Settings() {
     if (!ok) {
       message.error('打开模板目录失败')
     }
-  }
-
-  const handleAiApiKeyBlur = async () => {
-    const key = aiApiKey.trim()
-    if (!key) {
-      updateSetting('aiApiKeyEncrypted', null)
-      return
-    }
-
-    let encryptedKey = null
-    if (window.electronAPI?.encryptPassword) {
-      try {
-        encryptedKey = await window.electronAPI.encryptPassword(key)
-      } catch (e) {
-        console.error('加密 AI Key 失败:', e)
-      }
-    }
-
-    if (!encryptedKey) {
-      message.error('AI Key 保存失败')
-      return
-    }
-
-    updateSetting('aiApiKeyEncrypted', encryptedKey)
-    message.success('AI Key 已加密保存')
   }
 
   const handleWindowStyleChange = async (e) => {
@@ -730,62 +715,43 @@ function Settings() {
               />
             </div>
 
-            <div className="setting-item">
-              <label>API 地址</label>
-              <Input
-                value={settings.aiApiUrl || 'https://api.deepseek.com'}
-                onChange={(e) => updateSetting('aiApiUrl', e.target.value)}
-                placeholder="例如: https://api.deepseek.com"
-              />
-            </div>
-
-            <div className="setting-item">
-              <label>模型名称</label>
-              <Space.Compact style={{ width: '100%' }}>
-                <Select
-                  value={settings.aiModel || 'deepseek-v4-flash'}
-                  onChange={handleAiModelChange}
-                  options={aiModelOptions}
-                  style={{ width: 'calc(100% - 112px)' }}
-                />
-                <Button onClick={() => setCustomModelOpen(true)}>添加模型</Button>
-              </Space.Compact>
-            </div>
-
-            {customAiModels.length > 0 && (
-              <div className="custom-model-list">
-                {customAiModels.map((model) => (
-                  <div className="custom-model-item" key={model.model}>
-                    <div className="custom-model-main">
-                      <span className="custom-model-name">{model.name || model.model}</span>
-                      <span className="custom-model-meta">{model.model}</span>
-                      <span className="custom-model-url">{model.apiUrl}</span>
-                    </div>
-                    <Button type="link" danger onClick={() => handleRemoveCustomModel(model.model)}>
-                      删除
-                    </Button>
-                  </div>
-                ))}
+            <div className="ai-current-model">
+              <div>
+                <div className="ai-current-title">当前模型</div>
+                <div className="ai-current-name">{selectedAiModel?.name || '未配置'}</div>
+                <div className="ai-current-meta">
+                  {selectedAiModel?.modelId || '-'} · {selectedAiModel?.apiUrl || '-'}
+                </div>
               </div>
-            )}
-
-            <div className="setting-item">
-              <label>当前模型 ID</label>
-              <Input
-                value={settings.aiModel || ''}
-                onChange={(e) => updateSetting('aiModel', e.target.value.trim())}
-                placeholder="例如: deepseek-v4-flash"
-              />
+              <Button type="primary" onClick={() => openAiModelModal()}>
+                添加模型
+              </Button>
             </div>
 
-            <div className="setting-item">
-              <label>API Key（加密存储）</label>
-              <Input.Password
-                value={aiApiKey}
-                onChange={(e) => setAiApiKey(e.target.value)}
-                onBlur={handleAiApiKeyBlur}
-                placeholder="输入后失焦自动加密保存"
-              />
+            <div className="ai-model-list">
+              {aiModels.map((model) => (
+                <div className={`ai-model-item ${settings.aiSelectedModelId === model.id ? 'active' : ''}`} key={model.id}>
+                  <div className="ai-model-main">
+                    <div className="ai-model-title">
+                      <span>{model.name}</span>
+                      {model.builtin && <Tag color="blue">内置</Tag>}
+                      {settings.aiSelectedModelId === model.id && <Tag color="green">当前</Tag>}
+                    </div>
+                    <div className="ai-model-meta">{model.modelId}</div>
+                    <div className="ai-model-url">{model.apiUrl}</div>
+                    <div className="ai-model-key">{model.apiKeyEncrypted ? 'API Key 已保存' : '未保存 API Key'}</div>
+                  </div>
+                  <Space>
+                    {settings.aiSelectedModelId !== model.id && (
+                      <Button onClick={() => handleSelectAiModel(model.id)}>设为当前</Button>
+                    )}
+                    <Button onClick={() => openAiModelModal(model)}>编辑</Button>
+                    {!model.builtin && (
+                      <Button danger onClick={() => handleDeleteAiModel(model.id)}>删除</Button>
+                    )}
+                  </Space>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -861,34 +827,46 @@ function Settings() {
       </div>
 
       <Modal
-        title="添加 OpenAI 格式自定义模型"
+        title={editingAiModel ? '编辑模型配置' : '添加 OpenAI 格式模型'}
         open={customModelOpen}
-        onOk={handleAddCustomModel}
-        onCancel={() => setCustomModelOpen(false)}
-        okText="添加"
+        onOk={handleSaveAiModel}
+        onCancel={() => {
+          setCustomModelOpen(false)
+          setEditingAiModel(null)
+          setModelApiKey('')
+          customModelForm.resetFields()
+        }}
+        okText="保存"
         cancelText="取消"
         destroyOnClose
       >
         <Form form={customModelForm} layout="vertical" preserve={false}>
           <Form.Item
-            label="显示名称"
+            label="模型名称"
             name="name"
-            tooltip="仅用于在模型列表中展示"
+            rules={[{ required: true, message: '请输入模型名称' }]}
           >
-            <Input placeholder="例如：公司内网模型" />
+            <Input placeholder="例如：DeepSeek V4 Flash" />
+          </Form.Item>
+
+          <Form.Item
+            label="服务商"
+            name="provider"
+          >
+            <Input placeholder="例如：DeepSeek / OpenAI / 公司内网" />
           </Form.Item>
 
           <Form.Item
             label="模型 ID"
-            name="model"
+            name="modelId"
             rules={[
               { required: true, message: '请输入模型 ID' },
               {
                 validator: (_, value) => {
                   const model = String(value || '').trim()
                   if (!model) return Promise.resolve()
-                  const exists = BUILTIN_AI_MODELS.some((item) => item.value === model) ||
-                    customAiModels.some((item) => item.model === model)
+                  const currentId = editingAiModel?.id
+                  const exists = aiModels.some((item) => item.id !== currentId && item.modelId === model)
                   return exists ? Promise.reject(new Error('该模型 ID 已存在')) : Promise.resolve()
                 }
               }
@@ -906,6 +884,17 @@ function Settings() {
             ]}
           >
             <Input placeholder="例如：https://api.example.com/v1" />
+          </Form.Item>
+
+          <Form.Item
+            label="API Key"
+            tooltip="留空保存时会保留原 API Key"
+          >
+            <Input.Password
+              value={modelApiKey}
+              onChange={(e) => setModelApiKey(e.target.value)}
+              placeholder="输入后点击保存加密存储"
+            />
           </Form.Item>
         </Form>
       </Modal>

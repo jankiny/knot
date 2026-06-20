@@ -2,6 +2,29 @@
 
 const SETTINGS_KEY = 'knot_settings'
 
+export const DEFAULT_AI_MODEL_ID = 'deepseek-v4-flash'
+
+export const BUILTIN_AI_MODELS = [
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    provider: 'DeepSeek',
+    apiUrl: 'https://api.deepseek.com',
+    modelId: 'deepseek-v4-flash',
+    apiKeyEncrypted: null,
+    builtin: true
+  },
+  {
+    id: 'deepseek-v4-pro',
+    name: 'DeepSeek V4 Pro',
+    provider: 'DeepSeek',
+    apiUrl: 'https://api.deepseek.com',
+    modelId: 'deepseek-v4-pro',
+    apiKeyEncrypted: null,
+    builtin: true
+  }
+]
+
 const DEFAULT_SETTINGS = {
   // 窗口样式: 'integrated' (一体化) | 'classic' (经典)
   windowStyle: 'integrated',
@@ -44,28 +67,121 @@ const DEFAULT_SETTINGS = {
   aiModel: 'deepseek-v4-flash',
   aiApiKeyEncrypted: null,
   aiCustomModels: [],
+  aiSelectedModelId: DEFAULT_AI_MODEL_ID,
+  aiModels: BUILTIN_AI_MODELS,
   enableAiDailyReport: false,
   enableAiWeeklyReport: false,
   // 是否跟踪 preview/alpha 预览版更新
   enablePreviewUpdates: false
 }
 
+function normalizeAiModel(model) {
+  if (!model) return null
+  const modelId = String(model.modelId || model.model || model.id || '').trim()
+  if (!modelId) return null
+  const apiUrl = String(model.apiUrl || '').trim()
+  return {
+    id: String(model.id || modelId).trim(),
+    name: String(model.name || model.label || modelId).trim(),
+    provider: String(model.provider || (model.builtin ? 'DeepSeek' : 'custom-openai')).trim(),
+    apiUrl,
+    modelId,
+    apiKeyEncrypted: model.apiKeyEncrypted || model.api_key_encrypted || null,
+    builtin: !!model.builtin
+  }
+}
+
+function mergeAiModels(saved = {}) {
+  const merged = new Map()
+
+  BUILTIN_AI_MODELS.forEach((model) => {
+    merged.set(model.id, { ...model })
+  })
+
+  ;(saved.aiModels || []).forEach((model) => {
+    const normalized = normalizeAiModel(model)
+    if (!normalized) return
+    const existing = merged.get(normalized.id)
+    merged.set(normalized.id, {
+      ...(existing || {}),
+      ...normalized,
+      builtin: existing?.builtin || normalized.builtin
+    })
+  })
+
+  ;(saved.aiCustomModels || []).forEach((model) => {
+    const normalized = normalizeAiModel({
+      id: model.id || model.model,
+      name: model.name || model.model,
+      provider: model.provider || 'custom-openai',
+      apiUrl: model.apiUrl,
+      modelId: model.model,
+      apiKeyEncrypted: model.apiKeyEncrypted,
+      builtin: false
+    })
+    if (!normalized || merged.has(normalized.id)) return
+    merged.set(normalized.id, normalized)
+  })
+
+  const legacyModel = String(saved.aiModel || '').trim()
+  const legacyApiUrl = String(saved.aiApiUrl || '').trim()
+  if (legacyModel) {
+    const legacyId = legacyModel
+    const existing = merged.get(legacyId)
+    if (existing) {
+      merged.set(legacyId, {
+        ...existing,
+        apiUrl: legacyApiUrl || existing.apiUrl,
+        apiKeyEncrypted: saved.aiApiKeyEncrypted || existing.apiKeyEncrypted || null
+      })
+    } else {
+      merged.set(legacyId, {
+        id: legacyId,
+        name: legacyModel,
+        provider: 'custom-openai',
+        apiUrl: legacyApiUrl || 'https://api.deepseek.com',
+        modelId: legacyModel,
+        apiKeyEncrypted: saved.aiApiKeyEncrypted || null,
+        builtin: false
+      })
+    }
+  }
+
+  return Array.from(merged.values())
+}
+
+function normalizeSettings(settings) {
+  const aiModels = mergeAiModels(settings)
+  const selected = settings.aiSelectedModelId || settings.aiModel || DEFAULT_AI_MODEL_ID
+  const selectedExists = aiModels.some((model) => model.id === selected)
+  return {
+    ...settings,
+    aiModels,
+    aiSelectedModelId: selectedExists ? selected : DEFAULT_AI_MODEL_ID
+  }
+}
+
 export function getSettings() {
   try {
     const saved = localStorage.getItem(SETTINGS_KEY)
     if (saved) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }
+      const parsed = JSON.parse(saved)
+      const merged = { ...DEFAULT_SETTINGS, ...parsed }
+      if (!Object.prototype.hasOwnProperty.call(parsed, 'aiSelectedModelId') && parsed.aiModel) {
+        merged.aiSelectedModelId = parsed.aiModel
+      }
+      return normalizeSettings(merged)
     }
   } catch (e) {
     console.error('读取设置失败:', e)
   }
-  return DEFAULT_SETTINGS
+  return normalizeSettings(DEFAULT_SETTINGS)
 }
 
 export function saveSettings(updates) {
   try {
     const current = getSettings()
-    const newSettings = { ...current, ...updates }
+    const newSettings = normalizeSettings({ ...current, ...updates })
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings))
     return newSettings
   } catch (e) {
@@ -140,6 +256,19 @@ export function getDefaultDepartment() {
     return getDepartmentById(settings.defaultDepartmentId)
   }
   return null
+}
+
+export function getAiModels() {
+  return getSettings().aiModels || BUILTIN_AI_MODELS
+}
+
+export function getSelectedAiModel() {
+  const settings = getSettings()
+  const models = settings.aiModels || BUILTIN_AI_MODELS
+  return models.find((model) => model.id === settings.aiSelectedModelId) ||
+    models.find((model) => model.id === DEFAULT_AI_MODEL_ID) ||
+    models[0] ||
+    null
 }
 
 export function getProjects() {

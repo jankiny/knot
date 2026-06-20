@@ -3,7 +3,7 @@ import { Button, Card, Checkbox, DatePicker, Empty, Input, List, message, Space,
 import { CopyOutlined, FolderOpenOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { archiveApi, reportApi } from '../services/api'
-import { getDepartments, getProjects, getSettings } from '../services/settings'
+import { getDepartments, getProjects, getSelectedAiModel, getSettings } from '../services/settings'
 import { normalizePathKey, optimizeRecursiveScanDirectories } from '../services/path'
 import './DailyReport.css'
 
@@ -202,21 +202,22 @@ function DailyReport() {
     setGenerateLoading(true)
     try {
       const settings = getSettings()
+      const selectedModel = getSelectedAiModel()
       const aiConfig = {
         enabled: !!settings.enableAiDailyReport,
-        api_url: settings.aiApiUrl || 'https://api.deepseek.com',
+        api_url: selectedModel?.apiUrl || '',
         api_key: '',
-        model: settings.aiModel || 'deepseek-v4-flash'
+        model: selectedModel?.modelId || ''
       }
 
       if (aiConfig.enabled) {
-        if (!aiConfig.api_url || !aiConfig.model || !settings.aiApiKeyEncrypted) {
-          message.warning('AI 日报已启用，但 AI 地址、模型或 API Key 未完整配置')
+        if (!selectedModel || !aiConfig.api_url || !aiConfig.model || !selectedModel.apiKeyEncrypted) {
+          message.warning('AI 日报已启用，但当前模型的 API 地址、模型 ID 或 API Key 未完整配置')
           return
         }
 
         if (window.electronAPI?.decryptPassword) {
-          aiConfig.api_key = await window.electronAPI.decryptPassword(settings.aiApiKeyEncrypted) || ''
+          aiConfig.api_key = await window.electronAPI.decryptPassword(selectedModel.apiKeyEncrypted) || ''
         }
         if (!aiConfig.api_key) {
           message.warning('AI Key 解密失败，请重新保存 AI Key')
