@@ -40,10 +40,12 @@ const DEFAULT_SETTINGS = {
   // 归档扫描目录（扫描工作文件夹的位置）
   scanPath: '~/Desktop',
   // AI 日报设置
-  aiApiUrl: '',
-  aiModel: '',
+  aiApiUrl: 'https://api.deepseek.com',
+  aiModel: 'deepseek-v4-flash',
   aiApiKeyEncrypted: null,
+  aiCustomModels: [],
   enableAiDailyReport: false,
+  enableAiWeeklyReport: false,
   // 是否跟踪 preview/alpha 预览版更新
   enablePreviewUpdates: false
 }

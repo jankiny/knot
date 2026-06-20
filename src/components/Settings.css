@@ -123,6 +123,46 @@
   color: #999;
 }
 
+.custom-model-list {
+  margin-top: -4px;
+  margin-bottom: 16px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.custom-model-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.custom-model-item:last-child {
+  border-bottom: 0;
+}
+
+.custom-model-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.custom-model-name {
+  font-weight: 500;
+  color: #262626;
+}
+
+.custom-model-meta,
+.custom-model-url {
+  font-size: 12px;
+  color: #8c8c8c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mock-hint {
   margin: 0;
   padding: 12px;

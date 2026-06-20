@@ -6,8 +6,16 @@ import { archiveApi, reportApi } from '../services/api'
 import { getDepartments, getProjects, getSettings } from '../services/settings'
 import { normalizePathKey, optimizeRecursiveScanDirectories } from '../services/path'
 import './DailyReport.css'
+import './WeeklyReport.css'
 
 const { Text } = Typography
+const { RangePicker } = DatePicker
+
+function getDefaultWeekRange() {
+  const today = dayjs()
+  const monday = today.startOf('day').subtract((today.day() + 6) % 7, 'day')
+  return [monday, monday.add(6, 'day')]
+}
 
 function buildDefaultDirectories() {
   const settings = getSettings()
@@ -55,15 +63,15 @@ function buildDefaultDirectories() {
   return Array.from(dedup.values())
 }
 
-function DailyReport() {
+function WeeklyReport() {
   const [directories, setDirectories] = useState(buildDefaultDirectories())
   const [scanLoading, setScanLoading] = useState(false)
   const [generateLoading, setGenerateLoading] = useState(false)
   const [folders, setFolders] = useState([])
   const [selectedFolderPaths, setSelectedFolderPaths] = useState({})
-  const [selectedDate, setSelectedDate] = useState(dayjs())
+  const [selectedRange, setSelectedRange] = useState(getDefaultWeekRange())
   const [searchText, setSearchText] = useState('')
-  const [logs, setLogs] = useState([])
+  const [report, setReport] = useState(null)
   const [markdown, setMarkdown] = useState('')
 
   const filteredFolders = useMemo(() => {
@@ -165,14 +173,14 @@ function DailyReport() {
       })
 
       const folderList = Array.from(folderMap.values()).sort((a, b) => {
-        const aTime = new Date(a.create_time || 0).getTime()
-        const bTime = new Date(b.create_time || 0).getTime()
+        const aTime = new Date(a.task_date || a.create_time || 0).getTime()
+        const bTime = new Date(b.task_date || b.create_time || 0).getTime()
         return bTime - aTime
       })
 
       setFolders(folderList)
       setSelectedFolderPaths(Object.fromEntries(folderList.map((f) => [f.path, true])))
-      setLogs([])
+      setReport(null)
       setMarkdown('')
 
       if (failedCount > 0) {
@@ -194,6 +202,10 @@ function DailyReport() {
   }
 
   const handleGenerate = async () => {
+    if (!selectedRange?.[0] || !selectedRange?.[1]) {
+      message.warning('请选择周报周期')
+      return
+    }
     if (selectedFolders.length === 0) {
       message.warning('请至少勾选一个任务')
       return
@@ -203,7 +215,7 @@ function DailyReport() {
     try {
       const settings = getSettings()
       const aiConfig = {
-        enabled: !!settings.enableAiDailyReport,
+        enabled: !!settings.enableAiWeeklyReport,
         api_url: settings.aiApiUrl || 'https://api.deepseek.com',
         api_key: '',
         model: settings.aiModel || 'deepseek-v4-flash'
@@ -211,7 +223,7 @@ function DailyReport() {
 
       if (aiConfig.enabled) {
         if (!aiConfig.api_url || !aiConfig.model || !settings.aiApiKeyEncrypted) {
-          message.warning('AI 日报已启用，但 AI 地址、模型或 API Key 未完整配置')
+          message.warning('AI 周报已启用，但 AI 地址、模型或 API Key 未完整配置')
           return
         }
 
@@ -225,7 +237,8 @@ function DailyReport() {
       }
 
       const req = {
-        date: selectedDate.format('YYYY-MM-DD'),
+        period_start: selectedRange[0].format('YYYY-MM-DD'),
+        period_end: selectedRange[1].format('YYYY-MM-DD'),
         items: selectedFolders.map((folder) => ({
           folder_path: folder.path,
           work_record: ''
@@ -233,19 +246,18 @@ function DailyReport() {
         ai: aiConfig
       }
 
-      const resp = await reportApi.generateDaily(req)
+      const resp = await reportApi.generateWeekly(req)
       if (!resp.success) {
-        message.error('日报生成失败')
+        message.error('周报生成失败')
         return
       }
 
-      const outputLogs = resp.logs || []
-      const md = outputLogs.map((item) => `- ${item.content}`).join('\n')
-      setLogs(outputLogs)
-      setMarkdown(md)
-      message.success(`已生成 ${outputLogs.length} 条日报日志`)
+      const outputReport = resp.report || {}
+      setReport(outputReport)
+      setMarkdown(outputReport.markdown || '')
+      message.success(`已基于 ${resp.count || 0} 项周期内任务生成周报`)
     } catch (error) {
-      message.error(error.response?.data?.detail || '日报生成失败')
+      message.error(error.response?.data?.detail || '周报生成失败')
     } finally {
       setGenerateLoading(false)
     }
@@ -266,8 +278,8 @@ function DailyReport() {
   }
 
   return (
-    <div className="daily-report">
-      <Card title="日报生成目录选择" className="daily-card">
+    <div className="daily-report weekly-report">
+      <Card title="周报生成目录选择" className="daily-card">
         <div className="directory-actions">
           <Button onClick={addDirectory} icon={<FolderOpenOutlined />}>添加目录</Button>
           <Button type="primary" onClick={handleScan} icon={<ReloadOutlined />} loading={scanLoading}>扫描任务</Button>
@@ -320,7 +332,7 @@ function DailyReport() {
                   <div className="task-meta">
                     {folder.department && <Tag color="blue">{folder.department}</Tag>}
                     {folder.project && <Tag color="purple">{folder.project}</Tag>}
-                    {folder.create_time && <Tag>{folder.create_time}</Tag>}
+                    {(folder.task_date || folder.create_time) && <Tag>{folder.task_date || folder.create_time}</Tag>}
                     {(folder.fromDirectories || []).map((dirName) => (
                       <Tag key={`${folder.path}-${dirName}`} color="blue">{dirName}</Tag>
                     ))}
@@ -332,26 +344,26 @@ function DailyReport() {
         )}
       </Card>
 
-      <Card title="日报生成" className="daily-card">
+      <Card title="周报生成" className="daily-card">
         <div className="generate-bar">
-          <Space>
-            <span>日报日期</span>
-            <DatePicker value={selectedDate} onChange={(date) => setSelectedDate(date || dayjs())} allowClear={false} />
+          <Space wrap>
+            <span>周报周期</span>
+            <RangePicker
+              value={selectedRange}
+              onChange={(range) => setSelectedRange(range || getDefaultWeekRange())}
+              allowClear={false}
+            />
             <Tag color="green">已选任务：{selectedFolders.length}</Tag>
           </Space>
           <Button type="primary" icon={<RobotOutlined />} loading={generateLoading} onClick={handleGenerate}>
-            生成每条任务日报
+            生成周报
           </Button>
         </div>
 
-        {logs.length > 0 && (
-          <div className="logs-preview">
-            {logs.map((item) => (
-              <div className="log-row" key={`${item.folder_path}-${item.title}`}>
-                <span className="log-title">{item.title}</span>
-                <span className="log-content">{item.content}</span>
-              </div>
-            ))}
+        {report?.overview && (
+          <div className="weekly-summary">
+            <div className="weekly-summary-title">{report.title || '周报预览'}</div>
+            <div className="weekly-summary-text">{report.overview}</div>
           </div>
         )}
 
@@ -363,8 +375,8 @@ function DailyReport() {
           <Input.TextArea
             value={markdown}
             readOnly
-            autoSize={{ minRows: 6, maxRows: 14 }}
-            placeholder="- 完成了……，计划完成……"
+            autoSize={{ minRows: 10, maxRows: 22 }}
+            placeholder="生成后将在这里显示完整周报"
           />
         </div>
       </Card>
@@ -372,4 +384,4 @@ function DailyReport() {
   )
 }
 
-export default DailyReport
+export default WeeklyReport

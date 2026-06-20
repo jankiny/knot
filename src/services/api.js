@@ -172,6 +172,11 @@ export const reportApi = {
   generateDaily: async (requestData) => {
     const response = await axios.post(`${API_BASE}/report/daily/generate`, requestData)
     return response.data
+  },
+
+  generateWeekly: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/report/weekly/generate`, requestData)
+    return response.data
   }
 }
 

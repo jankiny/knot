@@ -23,6 +23,7 @@ import DailyReport from './components/DailyReport'
 import MailList from './components/MailList'
 import QuickCreate from './components/QuickCreate'
 import Settings from './components/Settings'
+import WeeklyReport from './components/WeeklyReport'
 import { USE_MOCK } from './services/api'
 import { getSettings } from './services/settings'
 import './App.css'
@@ -65,7 +66,8 @@ function App() {
     { key: 'quick', icon: <PlusSquareOutlined />, label: '快速创建' },
     { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
     { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
-    { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' }
+    { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' },
+    { key: 'weekly', icon: <FileTextOutlined />, label: '周报生成' }
   ]
 
   const renderContent = () => {
@@ -80,6 +82,8 @@ function App() {
         return <ArchiveManager />
       case 'daily':
         return <DailyReport />
+      case 'weekly':
+        return <WeeklyReport />
       case 'about':
         return <About />
       case 'settings':
@@ -101,6 +105,8 @@ function App() {
         return '归档管理'
       case 'daily':
         return '日报生成'
+      case 'weekly':
+        return '周报生成'
       case 'about':
         return '关于'
       case 'settings':

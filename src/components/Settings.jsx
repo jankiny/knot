@@ -27,12 +27,29 @@ const SAVE_FORMAT_OPTIONS = [
   { label: 'PDF（便于打印）', value: 'pdf' }
 ]
 
+const BUILTIN_AI_MODELS = [
+  {
+    label: 'DeepSeek V4 Flash',
+    value: 'deepseek-v4-flash',
+    apiUrl: 'https://api.deepseek.com',
+    provider: 'DeepSeek'
+  },
+  {
+    label: 'DeepSeek V4 Pro',
+    value: 'deepseek-v4-pro',
+    apiUrl: 'https://api.deepseek.com',
+    provider: 'DeepSeek'
+  }
+]
+
 function Settings() {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [settings, setSettings] = useState(getSettings())
   const [formatPreset, setFormatPreset] = useState('preset')
   const [aiApiKey, setAiApiKey] = useState('')
+  const [customModelOpen, setCustomModelOpen] = useState(false)
+  const [customModelForm] = Form.useForm()
   const [sopTemplates, setSopTemplates] = useState([])
   const [sopRoots, setSopRoots] = useState([])
   const [form] = Form.useForm()
@@ -143,6 +160,79 @@ function Settings() {
   const updateSetting = (key, value) => {
     const newSettings = saveSettings({ [key]: value })
     setSettings(newSettings)
+  }
+
+  const customAiModels = settings.aiCustomModels || []
+  const aiModelOptions = [
+    {
+      label: '内置模型',
+      options: BUILTIN_AI_MODELS.map((model) => ({
+        label: model.label,
+        value: model.value
+      }))
+    },
+    customAiModels.length > 0 && {
+      label: '自定义 OpenAI 格式模型',
+      options: customAiModels.map((model) => ({
+        label: model.name || model.model,
+        value: model.model
+      }))
+    }
+  ].filter(Boolean)
+
+  const handleAiModelChange = (modelValue) => {
+    const builtin = BUILTIN_AI_MODELS.find((model) => model.value === modelValue)
+    const custom = customAiModels.find((model) => model.model === modelValue)
+    const updates = { aiModel: modelValue }
+
+    if (builtin?.apiUrl) {
+      updates.aiApiUrl = builtin.apiUrl
+    } else if (custom?.apiUrl) {
+      updates.aiApiUrl = custom.apiUrl
+    }
+
+    const newSettings = saveSettings(updates)
+    setSettings(newSettings)
+  }
+
+  const handleAddCustomModel = async () => {
+    try {
+      const values = await customModelForm.validateFields()
+      const model = values.model.trim()
+      const apiUrl = values.apiUrl.trim().replace(/\/+$/, '')
+      const name = (values.name || model).trim()
+      if (BUILTIN_AI_MODELS.some((item) => item.value === model) || customAiModels.some((item) => item.model === model)) {
+        message.warning('该模型 ID 已存在')
+        return
+      }
+      const nextModels = [
+        ...customAiModels,
+        { name, model, apiUrl, provider: 'custom-openai' }
+      ]
+      const newSettings = saveSettings({
+        aiCustomModels: nextModels,
+        aiModel: model,
+        aiApiUrl: apiUrl
+      })
+      setSettings(newSettings)
+      setCustomModelOpen(false)
+      customModelForm.resetFields()
+      message.success('自定义模型已添加')
+    } catch {
+      // antd form validation already marks invalid fields
+    }
+  }
+
+  const handleRemoveCustomModel = (modelValue) => {
+    const nextModels = customAiModels.filter((model) => model.model !== modelValue)
+    const updates = { aiCustomModels: nextModels }
+    if (settings.aiModel === modelValue) {
+      updates.aiModel = 'deepseek-v4-flash'
+      updates.aiApiUrl = 'https://api.deepseek.com'
+    }
+    const newSettings = saveSettings(updates)
+    setSettings(newSettings)
+    message.success('自定义模型已删除')
   }
 
   const handleFormatPresetChange = (value) => {
@@ -632,21 +722,59 @@ function Settings() {
               />
             </div>
 
+            <div className="setting-item inline">
+              <label>启用 AI 周报</label>
+              <Switch
+                checked={!!settings.enableAiWeeklyReport}
+                onChange={(checked) => updateSetting('enableAiWeeklyReport', checked)}
+              />
+            </div>
+
             <div className="setting-item">
               <label>API 地址</label>
               <Input
-                value={settings.aiApiUrl || ''}
+                value={settings.aiApiUrl || 'https://api.deepseek.com'}
                 onChange={(e) => updateSetting('aiApiUrl', e.target.value)}
-                placeholder="例如: https://api.openai.com/v1"
+                placeholder="例如: https://api.deepseek.com"
               />
             </div>
 
             <div className="setting-item">
               <label>模型名称</label>
+              <Space.Compact style={{ width: '100%' }}>
+                <Select
+                  value={settings.aiModel || 'deepseek-v4-flash'}
+                  onChange={handleAiModelChange}
+                  options={aiModelOptions}
+                  style={{ width: 'calc(100% - 112px)' }}
+                />
+                <Button onClick={() => setCustomModelOpen(true)}>添加模型</Button>
+              </Space.Compact>
+            </div>
+
+            {customAiModels.length > 0 && (
+              <div className="custom-model-list">
+                {customAiModels.map((model) => (
+                  <div className="custom-model-item" key={model.model}>
+                    <div className="custom-model-main">
+                      <span className="custom-model-name">{model.name || model.model}</span>
+                      <span className="custom-model-meta">{model.model}</span>
+                      <span className="custom-model-url">{model.apiUrl}</span>
+                    </div>
+                    <Button type="link" danger onClick={() => handleRemoveCustomModel(model.model)}>
+                      删除
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="setting-item">
+              <label>当前模型 ID</label>
               <Input
                 value={settings.aiModel || ''}
-                onChange={(e) => updateSetting('aiModel', e.target.value)}
-                placeholder="例如: gpt-4.1-mini"
+                onChange={(e) => updateSetting('aiModel', e.target.value.trim())}
+                placeholder="例如: deepseek-v4-flash"
               />
             </div>
 
@@ -731,6 +859,56 @@ function Settings() {
           ]}
         />
       </div>
+
+      <Modal
+        title="添加 OpenAI 格式自定义模型"
+        open={customModelOpen}
+        onOk={handleAddCustomModel}
+        onCancel={() => setCustomModelOpen(false)}
+        okText="添加"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={customModelForm} layout="vertical" preserve={false}>
+          <Form.Item
+            label="显示名称"
+            name="name"
+            tooltip="仅用于在模型列表中展示"
+          >
+            <Input placeholder="例如：公司内网模型" />
+          </Form.Item>
+
+          <Form.Item
+            label="模型 ID"
+            name="model"
+            rules={[
+              { required: true, message: '请输入模型 ID' },
+              {
+                validator: (_, value) => {
+                  const model = String(value || '').trim()
+                  if (!model) return Promise.resolve()
+                  const exists = BUILTIN_AI_MODELS.some((item) => item.value === model) ||
+                    customAiModels.some((item) => item.model === model)
+                  return exists ? Promise.reject(new Error('该模型 ID 已存在')) : Promise.resolve()
+                }
+              }
+            ]}
+          >
+            <Input placeholder="例如：gpt-4o-mini 或 deepseek-v4-flash" />
+          </Form.Item>
+
+          <Form.Item
+            label="API 地址"
+            name="apiUrl"
+            rules={[
+              { required: true, message: '请输入 API 地址' },
+              { type: 'url', message: '请输入有效的 URL' }
+            ]}
+          >
+            <Input placeholder="例如：https://api.example.com/v1" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

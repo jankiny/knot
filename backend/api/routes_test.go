@@ -603,6 +603,105 @@ content from actual work.`
 	}
 }
 
+func TestHandleGenerateWeeklyReport_FallbackFiltersPeriod(t *testing.T) {
+	tmpDir := t.TempDir()
+	inFolder := filepath.Join(tmpDir, "2026.05.11_weekly_task")
+	outFolder := filepath.Join(tmpDir, "2026.04.20_old_task")
+	_ = os.MkdirAll(inFolder, 0o755)
+	_ = os.MkdirAll(outFolder, 0o755)
+
+	inRecord := `---
+type: task
+schema_version: 3
+title: weekly-task
+status: archived
+created: 2026-05-11
+updated: 2026-05-15
+task_date: 2026-05-11
+source: manual
+department: ops
+archive_status: local_archive
+hash: weeklyhash
+---
+# weekly-task
+
+## 工作内容
+
+围绕 weekly-task 开展任务资料整理与输出准备工作。
+
+## 工作过程
+
+- 2026-05-11：完成样本数据提取代码编写。
+
+## 当前进展
+
+已完成样本库数据处理
+
+## 下一步
+
+归档`
+	outRecord := `---
+type: task
+schema_version: 3
+title: old-task
+status: active
+created: 2026-04-20
+updated: 2026-04-20
+task_date: 2026-04-20
+source: manual
+department: ops
+archive_status: local_active
+hash: oldhash
+---
+# old-task
+
+## 工作过程
+
+- 2026-04-20：旧任务。`
+	_ = os.WriteFile(filepath.Join(inFolder, workRecordFileName), []byte(inRecord), 0o644)
+	_ = os.WriteFile(filepath.Join(outFolder, workRecordFileName), []byte(outRecord), 0o644)
+
+	router := SetupRoutes()
+	reqBody := WeeklyReportGenerateRequest{
+		PeriodStart: "2026-05-11",
+		PeriodEnd:   "2026-05-17",
+		Items: []WeeklyReportItem{
+			{FolderPath: inFolder},
+			{FolderPath: outFolder},
+		},
+		AI: DailyReportAIConfig{Enabled: false},
+	}
+	raw, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/report/weekly/generate", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Count   int  `json:"count"`
+		Report  struct {
+			Markdown string `json:"markdown"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if !resp.Success || resp.Count != 1 {
+		t.Fatalf("expected one in-period item, got %+v", resp)
+	}
+	if !strings.Contains(resp.Report.Markdown, "weekly-task") {
+		t.Fatalf("expected weekly task in markdown, got:\n%s", resp.Report.Markdown)
+	}
+	if strings.Contains(resp.Report.Markdown, "old-task") {
+		t.Fatalf("old task should be filtered out, got:\n%s", resp.Report.Markdown)
+	}
+}
+
 func TestNormalizePathKey_WindowsCaseInsensitive(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-only path key behavior")
