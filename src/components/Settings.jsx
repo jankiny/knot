@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Drawer, Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor, Radio, Modal, Tooltip } from 'antd'
+import { Form, Input, InputNumber, Button, Switch, message, Divider, Tag, Space, Select, Checkbox, Anchor, Radio, Modal, Tooltip } from 'antd'
 import { MailOutlined, LockOutlined, GlobalOutlined, FolderOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { mailApi, sopApi, USE_MOCK } from '../services/api'
-import { BUILTIN_AI_MODELS, DEFAULT_AI_MODEL_ID, getSettings, saveSettings, formatFolderName, setDefaultSopTemplateId } from '../services/settings'
+import { getSettings, saveSettings, formatFolderName, setDefaultSopTemplateId } from '../services/settings'
+import AiSettingsSection from './settings/AiSettingsSection'
 import DepartmentManager from './DepartmentManager'
 import ProjectManager from './ProjectManager'
 import './Settings.css'
@@ -32,10 +33,6 @@ function Settings() {
   const [connected, setConnected] = useState(false)
   const [settings, setSettings] = useState(getSettings())
   const [formatPreset, setFormatPreset] = useState('preset')
-  const [customModelOpen, setCustomModelOpen] = useState(false)
-  const [editingAiModel, setEditingAiModel] = useState(null)
-  const [modelApiKey, setModelApiKey] = useState('')
-  const [customModelForm] = Form.useForm()
   const [sopTemplates, setSopTemplates] = useState([])
   const [sopRoots, setSopRoots] = useState([])
   const [form] = Form.useForm()
@@ -135,113 +132,6 @@ function Settings() {
 
   const updateSetting = (key, value) => {
     const newSettings = saveSettings({ [key]: value })
-    setSettings(newSettings)
-  }
-
-  const aiModels = settings.aiModels || BUILTIN_AI_MODELS
-  const selectedAiModel = aiModels.find((model) => model.id === settings.aiSelectedModelId) ||
-    aiModels.find((model) => model.id === DEFAULT_AI_MODEL_ID) ||
-    aiModels[0]
-
-  const encryptModelApiKey = async () => {
-    const key = modelApiKey.trim()
-    if (!key) {
-      return editingAiModel?.apiKeyEncrypted || null
-    }
-    if (!window.electronAPI?.encryptPassword) {
-      message.error('API Key 保存失败')
-      return undefined
-    }
-    try {
-      return await window.electronAPI.encryptPassword(key)
-    } catch (e) {
-      console.error('加密 AI Key 失败:', e)
-      message.error('API Key 保存失败')
-      return undefined
-    }
-  }
-
-  const openAiModelModal = async (model = null) => {
-    setEditingAiModel(model)
-    customModelForm.setFieldsValue({
-      name: model?.name || '',
-      provider: model?.provider || '',
-      apiUrl: model?.apiUrl || '',
-      modelId: model?.modelId || ''
-    })
-
-    let decryptedKey = ''
-    if (model?.apiKeyEncrypted && window.electronAPI?.decryptPassword) {
-      try {
-        decryptedKey = await window.electronAPI.decryptPassword(model.apiKeyEncrypted) || ''
-      } catch (e) {
-        console.error('解密 AI Key 失败:', e)
-      }
-    }
-    setModelApiKey(decryptedKey)
-    setCustomModelOpen(true)
-  }
-
-  const handleSaveAiModel = async () => {
-    try {
-      const values = await customModelForm.validateFields()
-      const apiKeyEncrypted = await encryptModelApiKey()
-      if (apiKeyEncrypted === undefined) {
-        return
-      }
-
-      const modelId = values.modelId.trim()
-      const id = editingAiModel?.id || `custom-${Date.now()}`
-      const duplicate = aiModels.some((model) => model.id !== id && model.modelId === modelId)
-      if (duplicate) {
-        message.warning('该模型 ID 已存在')
-        return
-      }
-
-      const nextModel = {
-        id,
-        name: (values.name || modelId).trim(),
-        provider: (values.provider || 'custom-openai').trim(),
-        apiUrl: values.apiUrl.trim().replace(/\/+$/, ''),
-        modelId,
-        apiKeyEncrypted,
-        builtin: !!editingAiModel?.builtin
-      }
-      const nextModels = aiModels.map((model) => (model.id === id ? nextModel : model))
-      if (!editingAiModel) {
-        nextModels.push(nextModel)
-      }
-      const newSettings = saveSettings({
-        aiModels: nextModels,
-        aiSelectedModelId: id
-      })
-      setSettings(newSettings)
-      setCustomModelOpen(false)
-      setEditingAiModel(null)
-      setModelApiKey('')
-      customModelForm.resetFields()
-      message.success(editingAiModel ? '模型配置已更新' : '模型配置已添加')
-    } catch {
-      // antd form validation already marks invalid fields
-    }
-  }
-
-  const handleDeleteAiModel = (modelId) => {
-    const model = aiModels.find((item) => item.id === modelId)
-    if (!model || model.builtin) return
-
-    const nextModels = aiModels.filter((item) => item.id !== modelId)
-    const updates = { aiModels: nextModels }
-    if (settings.aiSelectedModelId === modelId) {
-      updates.aiSelectedModelId = DEFAULT_AI_MODEL_ID
-    }
-    const newSettings = saveSettings(updates)
-    setSettings(newSettings)
-    message.success('模型配置已删除')
-  }
-
-  const handleSelectAiModel = (modelId) => {
-    const newSettings = saveSettings({ aiSelectedModelId: modelId })
     setSettings(newSettings)
   }
 
@@ -691,70 +581,7 @@ function Settings() {
 
         <Divider />
 
-        {/* AI 设置 */}
-        <div id="ai-settings" className="settings-block">
-          <h2>AI 设置</h2>
-          <div className="settings-section">
-            <div className="section-header">
-              <h3>日报生成</h3>
-            </div>
-
-            <div className="setting-item inline">
-              <label>启用 AI 日报</label>
-              <Switch
-                checked={!!settings.enableAiDailyReport}
-                onChange={(checked) => updateSetting('enableAiDailyReport', checked)}
-              />
-            </div>
-
-            <div className="setting-item inline">
-              <label>启用 AI 周报</label>
-              <Switch
-                checked={!!settings.enableAiWeeklyReport}
-                onChange={(checked) => updateSetting('enableAiWeeklyReport', checked)}
-              />
-            </div>
-
-            <div className="ai-current-model">
-              <div>
-                <div className="ai-current-title">当前模型</div>
-                <div className="ai-current-name">{selectedAiModel?.name || '未配置'}</div>
-                <div className="ai-current-meta">
-                  {selectedAiModel?.modelId || '-'} · {selectedAiModel?.apiUrl || '-'}
-                </div>
-              </div>
-              <Button type="primary" onClick={() => openAiModelModal()}>
-                添加模型
-              </Button>
-            </div>
-
-            <div className="ai-model-list">
-              {aiModels.map((model) => (
-                <div className={`ai-model-item ${settings.aiSelectedModelId === model.id ? 'active' : ''}`} key={model.id}>
-                  <div className="ai-model-main">
-                    <div className="ai-model-title">
-                      <span>{model.name}</span>
-                      {model.builtin && <Tag color="blue">内置</Tag>}
-                      {settings.aiSelectedModelId === model.id && <Tag color="green">当前</Tag>}
-                    </div>
-                    <div className="ai-model-meta">{model.modelId}</div>
-                    <div className="ai-model-url">{model.apiUrl}</div>
-                    <div className="ai-model-key">{model.apiKeyEncrypted ? 'API Key 已保存' : '未保存 API Key'}</div>
-                  </div>
-                  <Space>
-                    {settings.aiSelectedModelId !== model.id && (
-                      <Button onClick={() => handleSelectAiModel(model.id)}>设为当前</Button>
-                    )}
-                    <Button onClick={() => openAiModelModal(model)}>编辑</Button>
-                    {!model.builtin && (
-                      <Button danger onClick={() => handleDeleteAiModel(model.id)}>删除</Button>
-                    )}
-                  </Space>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <AiSettingsSection settings={settings} onSettingsChange={setSettings} />
 
         <Divider />
 
@@ -826,78 +653,6 @@ function Settings() {
         />
       </div>
 
-      <Modal
-        title={editingAiModel ? '编辑模型配置' : '添加 OpenAI 格式模型'}
-        open={customModelOpen}
-        onOk={handleSaveAiModel}
-        onCancel={() => {
-          setCustomModelOpen(false)
-          setEditingAiModel(null)
-          setModelApiKey('')
-          customModelForm.resetFields()
-        }}
-        okText="保存"
-        cancelText="取消"
-        destroyOnClose
-      >
-        <Form form={customModelForm} layout="vertical" preserve={false}>
-          <Form.Item
-            label="模型名称"
-            name="name"
-            rules={[{ required: true, message: '请输入模型名称' }]}
-          >
-            <Input placeholder="例如：DeepSeek V4 Flash" />
-          </Form.Item>
-
-          <Form.Item
-            label="服务商"
-            name="provider"
-          >
-            <Input placeholder="例如：DeepSeek / OpenAI / 公司内网" />
-          </Form.Item>
-
-          <Form.Item
-            label="模型 ID"
-            name="modelId"
-            rules={[
-              { required: true, message: '请输入模型 ID' },
-              {
-                validator: (_, value) => {
-                  const model = String(value || '').trim()
-                  if (!model) return Promise.resolve()
-                  const currentId = editingAiModel?.id
-                  const exists = aiModels.some((item) => item.id !== currentId && item.modelId === model)
-                  return exists ? Promise.reject(new Error('该模型 ID 已存在')) : Promise.resolve()
-                }
-              }
-            ]}
-          >
-            <Input placeholder="例如：gpt-4o-mini 或 deepseek-v4-flash" />
-          </Form.Item>
-
-          <Form.Item
-            label="API 地址"
-            name="apiUrl"
-            rules={[
-              { required: true, message: '请输入 API 地址' },
-              { type: 'url', message: '请输入有效的 URL' }
-            ]}
-          >
-            <Input placeholder="例如：https://api.example.com/v1" />
-          </Form.Item>
-
-          <Form.Item
-            label="API Key"
-            tooltip="留空保存时会保留原 API Key"
-          >
-            <Input.Password
-              value={modelApiKey}
-              onChange={(e) => setModelApiKey(e.target.value)}
-              placeholder="输入后点击保存加密存储"
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   )
 }
