@@ -53,8 +53,9 @@ function About() {
       })
     }
 
+    let unsubscribeUpdateStatus
     if (window.electronAPI?.onUpdateStatus) {
-      window.electronAPI.onUpdateStatus((status) => {
+      unsubscribeUpdateStatus = window.electronAPI.onUpdateStatus((status) => {
         if (status) {
           setUpdateStatus(status)
         }
@@ -63,7 +64,9 @@ function About() {
 
     return () => {
       mounted = false
-      window.electronAPI?.removeUpdateStatusListener?.()
+      if (typeof unsubscribeUpdateStatus === 'function') {
+        unsubscribeUpdateStatus()
+      }
     }
   }, [])
 

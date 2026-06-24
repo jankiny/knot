@@ -57,8 +57,12 @@ function App() {
     if (!window.electronAPI) return undefined
 
     window.electronAPI.isWindowMaximized().then((status) => setIsMaximized(status))
-    window.electronAPI.onMaximizedStateChange((isMax) => setIsMaximized(isMax))
-    return () => window.electronAPI.removeMaximizedStateListener()
+    const unsubscribe = window.electronAPI.onMaximizedStateChange((isMax) => setIsMaximized(isMax))
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe()
+      }
+    }
   }, [])
 
   const menuItems = [

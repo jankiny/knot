@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react'
-import { Button, Card, Checkbox, DatePicker, Empty, Input, List, message, Space, Tag, Typography } from 'antd'
-import { CopyOutlined, FolderOpenOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons'
+import { useState } from 'react'
+import { Button, Card, DatePicker, Input, message, Space, Tag } from 'antd'
+import { CopyOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { archiveApi, reportApi } from '../services/api'
-import { getDepartments, getProjects, getSelectedAiModel, getSettings } from '../services/settings'
-import { normalizePathKey, optimizeRecursiveScanDirectories } from '../services/path'
+import { reportApi } from '../services/api'
+import { getReportAiConfig } from '../hooks/useAiConfig'
+import { useTaskDirectories } from '../hooks/useTaskDirectories'
+import ReportDirectorySelector from './reports/ReportDirectorySelector'
+import ReportTaskSelector from './reports/ReportTaskSelector'
 import './DailyReport.css'
 import './WeeklyReport.css'
 
-const { Text } = Typography
 const { RangePicker } = DatePicker
 
 function getDefaultWeekRange() {
@@ -17,189 +18,32 @@ function getDefaultWeekRange() {
   return [monday, monday.add(6, 'day')]
 }
 
-function buildDefaultDirectories() {
-  const settings = getSettings()
-  const list = []
-
-  if (settings.folderPath) {
-    list.push({
-      id: 'work-dir',
-      label: '当前工作目录',
-      path: settings.folderPath,
-      checked: true,
-      builtin: true
-    })
-  }
-
-  getDepartments().forEach((dept) => {
-    if (!dept.archivePath) return
-    list.push({
-      id: `dept-${dept.id}`,
-      label: `${dept.name}归档目录`,
-      path: dept.archivePath,
-      checked: false,
-      builtin: true
-    })
-  })
-
-  getProjects().forEach((project) => {
-    if (!project.archivePath) return
-    list.push({
-      id: `project-${project.id}`,
-      label: `${project.name}归档目录`,
-      path: project.archivePath,
-      checked: false,
-      builtin: true
-    })
-  })
-
-  const dedup = new Map()
-  list.forEach((item) => {
-    const key = normalizePathKey(item.path)
-    if (!key || dedup.has(key)) return
-    dedup.set(key, item)
-  })
-
-  return Array.from(dedup.values())
-}
-
 function WeeklyReport() {
-  const [directories, setDirectories] = useState(buildDefaultDirectories())
-  const [scanLoading, setScanLoading] = useState(false)
   const [generateLoading, setGenerateLoading] = useState(false)
-  const [folders, setFolders] = useState([])
-  const [selectedFolderPaths, setSelectedFolderPaths] = useState({})
   const [selectedRange, setSelectedRange] = useState(getDefaultWeekRange())
-  const [searchText, setSearchText] = useState('')
   const [report, setReport] = useState(null)
   const [markdown, setMarkdown] = useState('')
-
-  const filteredFolders = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase()
-    if (!keyword) return folders
-    return folders.filter((folder) => {
-      const text = `${folder.title || ''} ${folder.name || ''} ${folder.path || ''} ${folder.department || ''} ${folder.project || ''}`.toLowerCase()
-      return text.includes(keyword)
-    })
-  }, [folders, searchText])
-
-  const selectedFolders = useMemo(
-    () => folders.filter((folder) => !!selectedFolderPaths[folder.path]),
-    [folders, selectedFolderPaths]
-  )
-
-  const toggleDirectory = (id, checked) => {
-    setDirectories((prev) => prev.map((item) => (item.id === id ? { ...item, checked } : item)))
-  }
-
-  const removeDirectory = (id) => {
-    setDirectories((prev) => prev.filter((item) => item.id !== id))
-  }
-
-  const addDirectory = async () => {
-    if (!window.electronAPI?.selectFolder) {
-      message.info('请在 Electron 客户端中选择目录')
-      return
-    }
-
-    const path = await window.electronAPI.selectFolder()
-    if (!path) return
-
-    const key = normalizePathKey(path)
-    const exists = directories.some((item) => normalizePathKey(item.path) === key)
-    if (exists) {
-      message.info('该目录已存在')
-      return
-    }
-
-    setDirectories((prev) => [
-      ...prev,
-      {
-        id: `custom-${Date.now()}`,
-        label: '自定义目录',
-        path,
-        checked: true,
-        builtin: false
-      }
-    ])
-  }
-
-  const handleScan = async () => {
-    const scanTargets = optimizeRecursiveScanDirectories(directories)
-    if (scanTargets.length === 0) {
-      message.warning('请至少选择一个扫描目录')
-      return
-    }
-
-    setScanLoading(true)
-    try {
-      const results = await Promise.all(
-        scanTargets.map(async (item) => {
-          try {
-            const resp = await archiveApi.scan(item.path, true)
-            return { ok: true, item, resp }
-          } catch (error) {
-            return { ok: false, item, error }
-          }
-        })
-      )
-
-      const folderMap = new Map()
-      let failedCount = 0
-
-      results.forEach((result) => {
-        if (!result.ok || !result.resp?.success) {
-          failedCount += 1
-          return
-        }
-
-        ;(result.resp.folders || []).forEach((folder) => {
-          const pathKey = normalizePathKey(folder?.path)
-          if (!pathKey) return
-
-          const existing = folderMap.get(pathKey)
-          if (!existing) {
-            folderMap.set(pathKey, {
-              ...folder,
-              fromDirectories: [result.item.label]
-            })
-            return
-          }
-
-          existing.fromDirectories = Array.from(
-            new Set([...(existing.fromDirectories || []), result.item.label])
-          )
-        })
-      })
-
-      const folderList = Array.from(folderMap.values()).sort((a, b) => {
-        const aTime = new Date(a.task_date || a.create_time || 0).getTime()
-        const bTime = new Date(b.task_date || b.create_time || 0).getTime()
-        return bTime - aTime
-      })
-
-      setFolders(folderList)
-      setSelectedFolderPaths(Object.fromEntries(folderList.map((f) => [f.path, true])))
+  const {
+    addDirectory,
+    directories,
+    filteredFolders,
+    removeDirectory,
+    scanFolders,
+    scanLoading,
+    searchText,
+    selectedFolderPaths,
+    selectedFolders,
+    setAllFolderChecked,
+    setSearchText,
+    setSelectedFolderPaths,
+    toggleDirectory
+  } = useTaskDirectories({
+    preferTaskDate: true,
+    onScanComplete: () => {
       setReport(null)
       setMarkdown('')
-
-      if (failedCount > 0) {
-        message.warning(`扫描完成，成功 ${folderList.length} 项，失败目录 ${failedCount} 个`)
-      } else {
-        message.success(`扫描完成，共发现 ${folderList.length} 个任务`)
-      }
-    } finally {
-      setScanLoading(false)
     }
-  }
-
-  const setAllFolderChecked = (checked) => {
-    const next = {}
-    filteredFolders.forEach((folder) => {
-      next[folder.path] = checked
-    })
-    setSelectedFolderPaths((prev) => ({ ...prev, ...next }))
-  }
+  })
 
   const handleGenerate = async () => {
     if (!selectedRange?.[0] || !selectedRange?.[1]) {
@@ -213,29 +57,11 @@ function WeeklyReport() {
 
     setGenerateLoading(true)
     try {
-      const settings = getSettings()
-      const selectedModel = getSelectedAiModel()
-      const aiConfig = {
-        enabled: !!settings.enableAiWeeklyReport,
-        api_url: selectedModel?.apiUrl || '',
-        api_key: '',
-        model: selectedModel?.modelId || ''
-      }
-
-      if (aiConfig.enabled) {
-        if (!selectedModel || !aiConfig.api_url || !aiConfig.model || !selectedModel.apiKeyEncrypted) {
-          message.warning('AI 周报已启用，但当前模型的 API 地址、模型 ID 或 API Key 未完整配置')
-          return
-        }
-
-        if (window.electronAPI?.decryptPassword) {
-          aiConfig.api_key = await window.electronAPI.decryptPassword(selectedModel.apiKeyEncrypted) || ''
-        }
-        if (!aiConfig.api_key) {
-          message.warning('AI Key 解密失败，请重新保存 AI Key')
-          return
-        }
-      }
+      const aiConfig = await getReportAiConfig({
+        enabledSettingKey: 'enableAiWeeklyReport',
+        featureLabel: 'AI 周报'
+      })
+      if (!aiConfig) return
 
       const req = {
         period_start: selectedRange[0].format('YYYY-MM-DD'),
@@ -280,70 +106,25 @@ function WeeklyReport() {
 
   return (
     <div className="daily-report weekly-report">
-      <Card title="周报生成目录选择" className="daily-card">
-        <div className="directory-actions">
-          <Button onClick={addDirectory} icon={<FolderOpenOutlined />}>添加目录</Button>
-          <Button type="primary" onClick={handleScan} icon={<ReloadOutlined />} loading={scanLoading}>扫描任务</Button>
-        </div>
+      <ReportDirectorySelector
+        title="周报生成目录选择"
+        directories={directories}
+        loading={scanLoading}
+        onAddDirectory={addDirectory}
+        onRemoveDirectory={removeDirectory}
+        onScan={scanFolders}
+        onToggleDirectory={toggleDirectory}
+      />
 
-        <div className="directory-list">
-          {directories.length === 0 && <Empty description="暂无可用目录" />}
-          {directories.map((item) => (
-            <div className="directory-item" key={item.id}>
-              <Checkbox checked={item.checked} onChange={(e) => toggleDirectory(item.id, e.target.checked)}>
-                <span className="directory-label">{item.label}</span>
-              </Checkbox>
-              <Text type="secondary" className="directory-path">{item.path}</Text>
-              {!item.builtin && (
-                <Button type="link" danger onClick={() => removeDirectory(item.id)}>移除</Button>
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card title="任务筛选" className="daily-card">
-        <div className="task-toolbar">
-          <Input
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜索任务名称 / 路径 / 归属"
-            allowClear
-          />
-          <Space>
-            <Button onClick={() => setAllFolderChecked(true)}>全选当前列表</Button>
-            <Button onClick={() => setAllFolderChecked(false)}>取消当前列表</Button>
-          </Space>
-        </div>
-
-        {filteredFolders.length === 0 ? (
-          <Empty description="请先扫描任务目录" />
-        ) : (
-          <List
-            dataSource={filteredFolders}
-            renderItem={(folder) => (
-              <List.Item>
-                <div className="task-item">
-                  <Checkbox
-                    checked={!!selectedFolderPaths[folder.path]}
-                    onChange={(e) => setSelectedFolderPaths((prev) => ({ ...prev, [folder.path]: e.target.checked }))}
-                  >
-                    <span className="task-title">{folder.title || folder.name}</span>
-                  </Checkbox>
-                  <div className="task-meta">
-                    {folder.department && <Tag color="blue">{folder.department}</Tag>}
-                    {folder.project && <Tag color="purple">{folder.project}</Tag>}
-                    {(folder.task_date || folder.create_time) && <Tag>{folder.task_date || folder.create_time}</Tag>}
-                    {(folder.fromDirectories || []).map((dirName) => (
-                      <Tag key={`${folder.path}-${dirName}`} color="blue">{dirName}</Tag>
-                    ))}
-                  </div>
-                </div>
-              </List.Item>
-            )}
-          />
-        )}
-      </Card>
+      <ReportTaskSelector
+        folders={filteredFolders}
+        getDateLabel={(folder) => folder.task_date || folder.create_time}
+        searchText={searchText}
+        selectedFolderPaths={selectedFolderPaths}
+        setAllFolderChecked={setAllFolderChecked}
+        setSearchText={setSearchText}
+        setSelectedFolderPaths={setSelectedFolderPaths}
+      />
 
       <Card title="周报生成" className="daily-card">
         <div className="generate-bar">
