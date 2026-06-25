@@ -5,6 +5,7 @@ import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
 import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments, getProjects } from '../services/settings'
 import { readMailCache, saveMailCache } from '../services/mailCache'
 import DepartmentSelectModal from './DepartmentSelectModal'
+import { buildMailTimeline, formatFileSize, formatMailDate, formatRefreshTime, getBodyPreview, getMailMonthKey } from './mailListUtils'
 import './MailList.css'
 
 function MailList() {
@@ -34,20 +35,6 @@ function MailList() {
   // 用于防止 StrictMode 双重调用导致的竞态条件
   const fetchIdRef = useRef(0)
   const refreshTipTimerRef = useRef(null)
-
-  const formatRefreshTime = (timestamp) => {
-    if (!timestamp) return ''
-    try {
-      return new Date(timestamp).toLocaleTimeString('zh-CN', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      })
-    } catch {
-      return ''
-    }
-  }
 
   const showRefreshHint = (timestamp) => {
     if (!timestamp) return
@@ -214,37 +201,7 @@ function MailList() {
     }
   }
 
-  // 计算时间轴数据
-  const timelineData = useMemo(() => {
-    if (!mails || mails.length === 0) return []
-
-    const monthMap = new Map()
-
-    // mails 通常是按时间倒序排列的（最新的在前）
-    mails.forEach((mail) => {
-      if (!mail.date) return
-      const date = new Date(mail.date)
-      if (isNaN(date.getTime())) return
-
-      const year = date.getFullYear()
-      const month = date.getMonth() + 1
-      const monthKey = `${year}-${month.toString().padStart(2, '0')}`
-      const monthLabel = `${year}年${month}月`
-
-      // 因为邮件是按时间倒序的，所以我们遍历时遇到的第一个该月份的邮件就是该月份最新的邮件
-      if (!monthMap.has(monthKey)) {
-        monthMap.set(monthKey, {
-          key: monthKey,
-          label: monthLabel,
-          mailId: mail.id,
-          timestamp: date.getTime()
-        })
-      }
-    })
-
-    // 按时间倒序排列月份节点（最新的月份在上）
-    return Array.from(monthMap.values()).sort((a, b) => b.timestamp - a.timestamp)
-  }, [mails])
+  const timelineData = useMemo(() => buildMailTimeline(mails), [mails])
 
   // 监听滚动来计算当前所在的月份
   useEffect(() => {
@@ -290,10 +247,7 @@ function MailList() {
           const actualMailId = closestId.replace('mail-', '')
           const mail = mails.find(m => String(m.id) === String(actualMailId))
           if (mail && mail.date) {
-            const date = new Date(mail.date)
-            const year = date.getFullYear()
-            const month = date.getMonth() + 1
-            const monthKey = `${year}-${month.toString().padStart(2, '0')}`
+            const monthKey = getMailMonthKey(mail.date)
             setActiveMonthKey(monthKey)
           }
         }
@@ -490,36 +444,6 @@ function MailList() {
     }
   }
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return ''
-    try {
-      const date = new Date(dateStr)
-      return date.toLocaleDateString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    } catch {
-      return dateStr
-    }
-  }
-
-  const formatFileSize = (bytes) => {
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-  }
-
-  // 截取邮件正文预览
-  const getBodyPreview = (body, maxLength = 100) => {
-    if (!body) return ''
-    const text = body.replace(/\n+/g, ' ').trim()
-    if (text.length <= maxLength) return text
-    return text.slice(0, maxLength) + '...'
-  }
-
   if (loading) {
     return (
       <div className="loading-container">
@@ -605,7 +529,7 @@ function MailList() {
                       <div className="mail-subject">{mail.subject}</div>
                       <div className="mail-meta">
                         <span className="mail-from">{mail.from}</span>
-                        <span className="mail-date">{formatDate(mail.date)}</span>
+                        <span className="mail-date">{formatMailDate(mail.date)}</span>
                       </div>
                       {mail.body && (
                         <div className="mail-body-preview">
@@ -749,7 +673,7 @@ function MailList() {
               </div>
               <div className="preview-meta">
                 <span className="label">日期：</span>
-                <span className="value">{formatDate(previewMail.date)}</span>
+                <span className="value">{formatMailDate(previewMail.date)}</span>
               </div>
               {previewMail.attachment_count > 0 && (
                 <div className="preview-meta">
