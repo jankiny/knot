@@ -43,7 +43,7 @@ func (c *MailClient) Connect() error {
 	var err error
 
 	if c.useSSL {
-		c.conn, err = client.DialTLS(addr, &tls.Config{InsecureSkipVerify: true})
+		c.conn, err = client.DialTLS(addr, &tls.Config{ServerName: c.server})
 	} else {
 		c.conn, err = client.Dial(addr)
 	}
@@ -144,7 +144,7 @@ func (c *MailClient) FetchMailList(limit int, days int) ([]MailItem, error) {
 	var results []MailItem
 	for msg := range messages {
 		subj := msg.Envelope.Subject
-		
+
 		fromAddr := ""
 		if len(msg.Envelope.From) > 0 {
 			f := msg.Envelope.From[0]
@@ -161,7 +161,7 @@ func (c *MailClient) FetchMailList(limit int, days int) ([]MailItem, error) {
 			Subject:         decodeRFC2047(subj),
 			From:            decodeRFC2047(fromAddr),
 			Date:            msg.Envelope.Date.Format(time.RFC1123Z),
-			AttachmentCount: 0,     // We'd need BODYSTRUCTURE to get this realistically, kept 0 for speed for now
+			AttachmentCount: 0, // We'd need BODYSTRUCTURE to get this realistically, kept 0 for speed for now
 			HasAttachments:  false,
 		})
 	}
@@ -240,7 +240,7 @@ func (c *MailClient) FetchMailDetail(mailID string) (map[string]interface{}, err
 
 	var body, htmlBody string
 	var attachments []map[string]interface{}
-	
+
 	// Fetch raw content: unfortunately mail.CreateReader consumes the stream
 	// For actual raw_content we would read all bytes then parse, simplified here.
 
@@ -316,13 +316,13 @@ func (c *MailClient) DownloadAttachments(mailID string, savePath string) ([]stri
 		case *mail.AttachmentHeader:
 			filename, _ := h.Filename()
 			filename = decodeRFC2047(filename)
-			
+
 			// Clean filename (simple version)
 			safeFilename := strings.ReplaceAll(filename, "/", "_")
 			safeFilename = strings.ReplaceAll(safeFilename, "\\", "_")
-			
+
 			fpath := filepath.Join(savePath, safeFilename)
-			
+
 			// Save
 			b, _ := io.ReadAll(p.Body)
 			if len(b) > 0 {
@@ -336,4 +336,3 @@ func (c *MailClient) DownloadAttachments(mailID string, savePath string) ([]stri
 
 	return downloaded, nil
 }
-
