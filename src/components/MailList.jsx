@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { List, Card, Button, Tag, Collapse, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
-import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
+import { List, Button, Tag, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
+import { ReloadOutlined, SettingOutlined } from '@ant-design/icons'
 import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
 import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments, getProjects } from '../services/settings'
 import { readMailCache, saveMailCache } from '../services/mailCache'
 import DepartmentSelectModal from './DepartmentSelectModal'
-import { buildMailTimeline, formatFileSize, formatMailDate, formatRefreshTime, getBodyPreview, getMailMonthKey } from './mailListUtils'
+import MailItemCard from './MailItemCard'
+import MailPreviewModal from './MailPreviewModal'
+import { buildMailTimeline, formatRefreshTime, getMailMonthKey } from './mailListUtils'
 import './MailList.css'
 
 function MailList() {
@@ -444,6 +446,16 @@ function MailList() {
     }
   }
 
+  const getGeneratedStatus = (mail) => {
+    const mailHash = mailHashCache[mail.id]
+    return mailHash && generatedHashMap[mailHash]
+  }
+
+  const handlePreviewCreate = (mail) => {
+    setPreviewMail(null)
+    openDeptModal(mail)
+  }
+
   if (loading) {
     return (
       <div className="loading-container">
@@ -523,90 +535,15 @@ function MailList() {
             <List
               dataSource={mails}
               renderItem={(mail) => (
-                <Card className="mail-item" key={mail.id} id={`mail-${mail.id}`}>
-                  <div className="mail-content">
-                    <div className="mail-info">
-                      <div className="mail-subject">{mail.subject}</div>
-                      <div className="mail-meta">
-                        <span className="mail-from">{mail.from}</span>
-                        <span className="mail-date">{formatMailDate(mail.date)}</span>
-                      </div>
-                      {mail.body && (
-                        <div className="mail-body-preview">
-                          {getBodyPreview(mail.body)}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mail-actions">
-                      {(() => {
-                        const mailHash = mailHashCache[mail.id]
-                        const status = mailHash && generatedHashMap[mailHash]
-                        if (status === 'archived') {
-                          return (
-                            <Tag icon={<InboxOutlined />} color="default">
-                              已归档
-                            </Tag>
-                          )
-                        } else if (status === 'working') {
-                          return (
-                            <Tag icon={<CheckCircleOutlined />} color="success">
-                              已生成
-                            </Tag>
-                          )
-                        }
-                        return null
-                      })()}
-
-                      {(mail.attachment_count > 0 || mail.has_attachments) && (
-                        <Tag icon={<PaperClipOutlined />} color="blue">
-                          {mail.attachment_count > 0 ? `${mail.attachment_count} 个附件` : '有附件'}
-                        </Tag>
-                      )}
-
-                      <Tooltip title="预览邮件">
-                        <Button
-                          icon={<EyeOutlined />}
-                          onClick={() => handlePreviewMail(mail)}
-                          loading={loadingDetail}
-                        />
-                      </Tooltip>
-
-                      <Tooltip title={(mail.attachment_count > 0 || mail.has_attachments) ? "创建文件夹并下载附件" : "创建文件夹"}>
-                        <Button
-                          type="primary"
-                          icon={<FolderAddOutlined />}
-                          onClick={() => openDeptModal(mail)}
-                          loading={creating[mail.id]}
-                        >
-                          生成
-                        </Button>
-                      </Tooltip>
-                    </div>
-                  </div>
-
-                  {mail.attachments && mail.attachments.length > 0 && (
-                    <Collapse
-                      ghost
-                      className="attachments-collapse"
-                      items={[{
-                        key: '1',
-                        label: '查看附件详情',
-                        children: (
-                          <ul className="attachment-list">
-                            {mail.attachments.map((att, idx) => (
-                              <li key={idx}>
-                                <PaperClipOutlined />
-                                <span className="att-name">{att.filename}</span>
-                                <span className="att-size">{formatFileSize(att.size)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )
-                      }]}
-                    />
-                  )}
-                </Card>
+                <MailItemCard
+                  key={mail.id}
+                  mail={mail}
+                  status={getGeneratedStatus(mail)}
+                  creating={creating[mail.id]}
+                  loadingDetail={loadingDetail}
+                  onPreview={handlePreviewMail}
+                  onCreate={openDeptModal}
+                />
               )}
             />
           )}
@@ -641,65 +578,11 @@ function MailList() {
         </div>
       </div>
 
-      {/* 邮件预览弹窗 */}
-      <Modal
-        title={previewMail?.subject}
-        open={!!previewMail}
-        onCancel={() => setPreviewMail(null)}
-        footer={[
-          <Button key="close" onClick={() => setPreviewMail(null)}>
-            关闭
-          </Button>,
-          <Button
-            key="create"
-            type="primary"
-            icon={<FolderAddOutlined />}
-            onClick={() => {
-              setPreviewMail(null)
-              openDeptModal(previewMail)
-            }}
-          >
-            生成文件夹
-          </Button>
-        ]}
-        width={700}
-      >
-        {previewMail && (
-          <div className="mail-preview">
-            <div className="preview-header">
-              <div className="preview-meta">
-                <span className="label">发件人：</span>
-                <span className="value">{previewMail.from}</span>
-              </div>
-              <div className="preview-meta">
-                <span className="label">日期：</span>
-                <span className="value">{formatMailDate(previewMail.date)}</span>
-              </div>
-              {previewMail.attachment_count > 0 && (
-                <div className="preview-meta">
-                  <span className="label">附件：</span>
-                  <span className="value">{previewMail.attachment_count} 个</span>
-                </div>
-              )}
-            </div>
-            <div className="preview-body">
-              {previewMail.body || '(无正文内容)'}
-            </div>
-            {previewMail.attachments && previewMail.attachments.length > 0 && (
-              <div className="preview-attachments">
-                <div className="attachments-title">附件列表：</div>
-                <ul>
-                  {previewMail.attachments.map((att, idx) => (
-                    <li key={idx}>
-                      <PaperClipOutlined /> {att.filename} ({formatFileSize(att.size)})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      <MailPreviewModal
+        mail={previewMail}
+        onClose={() => setPreviewMail(null)}
+        onCreate={handlePreviewCreate}
+      />
 
       {/* 部门选择弹窗 */}
       <DepartmentSelectModal
