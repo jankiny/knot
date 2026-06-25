@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Form, Input, message, Modal, Space, Switch, Tag } from 'antd'
+import { Alert, Button, Form, Input, message, Modal, Space, Tag } from 'antd'
 import { BUILTIN_AI_MODELS, DEFAULT_AI_MODEL_ID, saveSettings } from '../../services/settings'
 
 function AiSettingsSection({ settings, onSettingsChange }) {
@@ -130,24 +130,15 @@ function AiSettingsSection({ settings, onSettingsChange }) {
         <h2>AI 设置</h2>
         <div className="settings-section">
           <div className="section-header">
-            <h3>日报生成</h3>
+            <h3>报告生成模型</h3>
           </div>
-
-          <div className="setting-item inline">
-            <label>启用 AI 日报</label>
-            <Switch
-              checked={!!settings.enableAiDailyReport}
-              onChange={(checked) => updateSetting('enableAiDailyReport', checked)}
-            />
-          </div>
-
-          <div className="setting-item inline">
-            <label>启用 AI 周报</label>
-            <Switch
-              checked={!!settings.enableAiWeeklyReport}
-              onChange={(checked) => updateSetting('enableAiWeeklyReport', checked)}
-            />
-          </div>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="日报和周报需要调用当前 AI 模型生成"
+            description="请为当前模型配置 API 地址、模型 ID 和 API Key。未完整配置时，日报和周报不会生成。"
+          />
 
           <div className="ai-current-model">
             <div>

@@ -544,7 +544,7 @@ func TestBuildDailyReportInput_UsesCoreContent(t *testing.T) {
 	}
 }
 
-func TestHandleGenerateDailyReport_Fallback(t *testing.T) {
+func TestHandleGenerateDailyReport_RequiresAIConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	folderPath := filepath.Join(tmpDir, "2026.04.20_daily_task")
 	_ = os.MkdirAll(folderPath, 0o755)
@@ -582,28 +582,15 @@ content from actual work.`
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
 	}
-
-	var resp struct {
-		Success bool `json:"success"`
-		Logs    []struct {
-			Content string `json:"content"`
-		} `json:"logs"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-	if !resp.Success || len(resp.Logs) != 1 {
-		t.Fatalf("unexpected response: %+v", resp)
-	}
-	if strings.TrimSpace(resp.Logs[0].Content) == "" {
-		t.Fatalf("expected non-empty fallback daily log")
+	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
+		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
 	}
 }
 
-func TestHandleGenerateWeeklyReport_FallbackFiltersPeriod(t *testing.T) {
+func TestHandleGenerateWeeklyReport_RequiresAIConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	inFolder := filepath.Join(tmpDir, "2026.05.11_weekly_task")
 	outFolder := filepath.Join(tmpDir, "2026.04.20_old_task")
@@ -677,28 +664,11 @@ hash: oldhash
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
 	}
-
-	var resp struct {
-		Success bool `json:"success"`
-		Count   int  `json:"count"`
-		Report  struct {
-			Markdown string `json:"markdown"`
-		} `json:"report"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-	if !resp.Success || resp.Count != 1 {
-		t.Fatalf("expected one in-period item, got %+v", resp)
-	}
-	if !strings.Contains(resp.Report.Markdown, "weekly-task") {
-		t.Fatalf("expected weekly task in markdown, got:\n%s", resp.Report.Markdown)
-	}
-	if strings.Contains(resp.Report.Markdown, "old-task") {
-		t.Fatalf("old task should be filtered out, got:\n%s", resp.Report.Markdown)
+	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
+		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
 	}
 }
 

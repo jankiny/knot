@@ -58,7 +58,6 @@ function WeeklyReport() {
     setGenerateLoading(true)
     try {
       const aiConfig = await getReportAiConfig({
-        enabledSettingKey: 'enableAiWeeklyReport',
         featureLabel: 'AI 周报'
       })
       if (!aiConfig) return

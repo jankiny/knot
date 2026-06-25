@@ -269,6 +269,22 @@ func generateDailyLogWithAI(cfg DailyReportAIConfig, reportInput string) (string
 	return content, nil
 }
 
+func validateReportAIConfig(cfg DailyReportAIConfig) error {
+	if !cfg.Enabled {
+		return fmt.Errorf("AI report generation is required")
+	}
+	if strings.TrimSpace(cfg.APIURL) == "" {
+		return fmt.Errorf("AI API URL is required")
+	}
+	if strings.TrimSpace(cfg.Model) == "" {
+		return fmt.Errorf("AI model is required")
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return fmt.Errorf("AI API key is required")
+	}
+	return nil
+}
+
 func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 	var req DailyReportGenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -286,10 +302,10 @@ func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 		reportDate = time.Now().Format("2006-01-02")
 	}
 
-	aiEnabled := req.AI.Enabled &&
-		strings.TrimSpace(req.AI.APIURL) != "" &&
-		strings.TrimSpace(req.AI.Model) != "" &&
-		strings.TrimSpace(req.AI.APIKey) != ""
+	if err := validateReportAIConfig(req.AI); err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	logs := make([]DailyReportLog, 0, len(req.Items))
 	for _, item := range req.Items {
@@ -323,16 +339,16 @@ func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 		}
 
 		reportInput := buildDailyReportInput(reportDate, title, department, coreContent)
-		content := fallbackDailyLog(title, coreContent)
-		if aiEnabled {
-			if generated, err := generateDailyLogWithAI(req.AI, reportInput); err == nil {
-				content = generated
-			}
+		content, err := generateDailyLogWithAI(req.AI, reportInput)
+		if err != nil {
+			jsonError(w, http.StatusBadGateway, fmt.Sprintf("AI daily report generation failed: %v", err))
+			return
 		}
 
 		content = truncateRunes(cleanDailyLog(content), 160)
 		if content == "" {
-			content = fallbackDailyLog(title, coreContent)
+			jsonError(w, http.StatusBadGateway, "AI daily report generation returned empty content")
+			return
 		}
 
 		logs = append(logs, DailyReportLog{
@@ -713,16 +729,19 @@ func handleGenerateWeeklyReport(w http.ResponseWriter, r *http.Request) {
 	startText := start.Format("2006-01-02")
 	endText := end.Format("2006-01-02")
 	items := collectWeeklyWorkItems(req, start, end)
-	report := buildFallbackWeeklyReport(startText, endText, items)
 
-	aiEnabled := req.AI.Enabled &&
-		strings.TrimSpace(req.AI.APIURL) != "" &&
-		strings.TrimSpace(req.AI.Model) != "" &&
-		strings.TrimSpace(req.AI.APIKey) != ""
-	if aiEnabled && len(items) > 0 {
-		if generated, err := generateWeeklyReportWithAI(req.AI, startText, endText, items); err == nil {
-			report = generated
-		}
+	if err := validateReportAIConfig(req.AI); err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(items) == 0 {
+		jsonError(w, http.StatusBadRequest, "no work items found in selected period")
+		return
+	}
+	report, err := generateWeeklyReportWithAI(req.AI, startText, endText, items)
+	if err != nil {
+		jsonError(w, http.StatusBadGateway, fmt.Sprintf("AI weekly report generation failed: %v", err))
+		return
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{

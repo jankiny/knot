@@ -69,8 +69,6 @@ const DEFAULT_SETTINGS = {
   aiCustomModels: [],
   aiSelectedModelId: DEFAULT_AI_MODEL_ID,
   aiModels: BUILTIN_AI_MODELS,
-  enableAiDailyReport: false,
-  enableAiWeeklyReport: false,
   // 是否跟踪 preview/alpha 预览版更新
   enablePreviewUpdates: false
 }

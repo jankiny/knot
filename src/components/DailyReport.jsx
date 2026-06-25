@@ -44,7 +44,6 @@ function DailyReport() {
     setGenerateLoading(true)
     try {
       const aiConfig = await getReportAiConfig({
-        enabledSettingKey: 'enableAiDailyReport',
         featureLabel: 'AI 日报'
       })
       if (!aiConfig) return

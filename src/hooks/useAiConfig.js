@@ -1,22 +1,17 @@
 import { message } from 'antd'
-import { getSelectedAiModel, getSettings } from '../services/settings'
+import { getSelectedAiModel } from '../services/settings'
 
-export async function getReportAiConfig({ enabledSettingKey, featureLabel }) {
-  const settings = getSettings()
+export async function getReportAiConfig({ featureLabel }) {
   const selectedModel = getSelectedAiModel()
   const aiConfig = {
-    enabled: !!settings[enabledSettingKey],
+    enabled: true,
     api_url: selectedModel?.apiUrl || '',
     api_key: '',
     model: selectedModel?.modelId || ''
   }
 
-  if (!aiConfig.enabled) {
-    return aiConfig
-  }
-
   if (!selectedModel || !aiConfig.api_url || !aiConfig.model || !selectedModel.apiKeyEncrypted) {
-    message.warning(`${featureLabel}已启用，但当前模型的 API 地址、模型 ID 或 API Key 未完整配置`)
+    message.warning(`${featureLabel}需要完整配置当前模型的 API 地址、模型 ID 和 API Key`)
     return null
   }
 
