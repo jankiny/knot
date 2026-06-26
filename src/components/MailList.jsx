@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { List, Button, Tag, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
 import { ReloadOutlined, SettingOutlined } from '@ant-design/icons'
-import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
+import { mailApi, folderApi, USE_MOCK } from '../services/api'
 import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments, getProjects } from '../services/settings'
-import { readMailCache, saveMailCache } from '../services/mailCache'
+import { useMailData } from '../hooks/useMailData'
+import { useMailGenerationStatus } from '../hooks/useMailGenerationStatus'
 import DepartmentSelectModal from './DepartmentSelectModal'
 import MailItemCard from './MailItemCard'
 import MailPreviewModal from './MailPreviewModal'
@@ -11,10 +12,6 @@ import { buildMailTimeline, formatRefreshTime, getMailMonthKey } from './mailLis
 import './MailList.css'
 
 function MailList() {
-  const [mails, setMails] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [lastRefreshAt, setLastRefreshAt] = useState(0)
   const [showRefreshTip, setShowRefreshTip] = useState(false)
   const [creating, setCreating] = useState({})
   const [previewMail, setPreviewMail] = useState(null)
@@ -24,19 +21,19 @@ function MailList() {
   // 部门选择弹窗状态
   const [deptModalOpen, setDeptModalOpen] = useState(false)
   const [selectedMailForFolder, setSelectedMailForFolder] = useState(null)
-  // 连接状态
-  const [connectionError, setConnectionError] = useState(null)
-  // 已生成的邮件 hash 映射：{ mailHash: 'working' | 'archived' }
-  const [generatedHashMap, setGeneratedHashMap] = useState({})
-  // 邮件 id -> hash 缓存（用于同步渲染中查找状态）
-  const [mailHashCache, setMailHashCache] = useState({})
-
-  // 记录最近一次获取数据的天数范围
-  const [fetchDays, setFetchDays] = useState(7)
-
-  // 用于防止 StrictMode 双重调用导致的竞态条件
-  const fetchIdRef = useRef(0)
   const refreshTipTimerRef = useRef(null)
+  const {
+    connectionError,
+    fetchDays,
+    fetchMails,
+    lastRefreshAt,
+    loading,
+    mails,
+    refreshing,
+    setLastRefreshAt,
+    setMails
+  } = useMailData()
+  const { getGeneratedStatus, markGenerated } = useMailGenerationStatus(mails)
 
   const showRefreshHint = (timestamp) => {
     if (!timestamp) return
@@ -50,104 +47,6 @@ function MailList() {
     }, 2600)
   }
 
-  const fetchMails = async ({ pageLoading = false, showHint = true } = {}) => {
-    // 递增 fetchId，用于忽略过时的请求结果（防止 StrictMode 双重调用竞态）
-    const currentFetchId = ++fetchIdRef.current
-    if (pageLoading) {
-      setLoading(true)
-    } else {
-      setRefreshing(true)
-    }
-    setConnectionError(null)
-    try {
-      const settings = getSettings()
-
-      // 自动连接：如果有保存的邮箱配置，先尝试连接后端
-      if (settings.mailServer && settings.mailUsername && settings.mailPasswordEncrypted) {
-        try {
-          let password = ''
-          if (window.electronAPI?.decryptPassword) {
-            password = await window.electronAPI.decryptPassword(settings.mailPasswordEncrypted) || ''
-          }
-          if (password) {
-            await mailApi.connect({
-              server: settings.mailServer,
-              port: settings.mailPort || 993,
-              username: settings.mailUsername,
-              password: password,
-              use_ssl: settings.mailUseSsl !== false
-            })
-          }
-        } catch (connectError) {
-          console.error('自动连接邮箱失败:', connectError)
-          // 连接失败不阻断，让后续 getMailList 决定错误类型
-        }
-      }
-
-      // 如果在等待期间又触发了新的 fetchMails，放弃本次结果
-      if (currentFetchId !== fetchIdRef.current) return
-
-      // 使用设置中的 limit 和 days，如果未设置则使用默认值
-      const limit = settings.mailLimit || 50
-      const days = settings.mailDays !== undefined ? settings.mailDays : 7
-
-      setFetchDays(days)
-
-      const result = await mailApi.getMailList(limit, days)
-      // 再次检查：如果在请求期间又触发了新的 fetchMails，忽略旧结果
-      if (currentFetchId !== fetchIdRef.current) return
-      const mailData = result.data || []
-      setMails(mailData)
-      const saved = saveMailCache(settings, mailData)
-      const refreshedAt = saved?.cachedAt || Date.now()
-      setLastRefreshAt(refreshedAt)
-      if (showHint) {
-        showRefreshHint(refreshedAt)
-      }
-
-      // 加载已生成状态：通过后端扫描工作目录获取已有的 hash
-      loadGeneratedHashes(mailData, settings)
-    } catch (error) {
-      // 如果是过时的请求，忽略其错误
-      if (currentFetchId !== fetchIdRef.current) return
-      if (error.code === 'ERR_NETWORK') {
-        setConnectionError('network')
-      } else if (error.response?.status === 400) {
-        // 400 表示后端正常但未配置邮箱连接
-        setConnectionError('not_configured')
-      } else if (error.response?.status === 401 || error.response?.status === 403) {
-        setConnectionError('auth')
-      } else {
-        setConnectionError('unknown')
-      }
-      if (pageLoading) {
-        setMails([])
-      }
-    } finally {
-      if (currentFetchId === fetchIdRef.current) {
-        setLoading(false)
-        setRefreshing(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const settings = getSettings()
-    const cached = readMailCache(settings)
-
-    if (cached) {
-      setMails(cached.mails || [])
-      setFetchDays(cached.mailDays)
-      setLastRefreshAt(cached.cachedAt || 0)
-      setLoading(false)
-      loadGeneratedHashes(cached.mails || [], settings)
-      fetchMails()
-      return
-    }
-
-    fetchMails({ pageLoading: true, showHint: false })
-  }, [])
-
   useEffect(() => {
     return () => {
       if (refreshTipTimerRef.current) {
@@ -155,53 +54,6 @@ function MailList() {
       }
     }
   }, [])
-
-  // 加载已生成状态：扫描工作目录和归档目录，构建 hash -> status 映射
-  const loadGeneratedHashes = async (mailList, settings) => {
-    try {
-      // 为所有邮件预计算 hash
-      const hashCacheEntries = await Promise.all(
-        mailList.map(async (mail) => {
-          const hash = await generateMailHash(mail)
-          return [mail.id, hash]
-        })
-      )
-      const newMailHashCache = Object.fromEntries(hashCacheEntries)
-      setMailHashCache(newMailHashCache)
-
-      // 扫描工作目录
-      const scanResult = await archiveApi.scan(settings.scanPath || settings.folderPath)
-      const hashMap = {}
-      if (scanResult.success && scanResult.folders) {
-        scanResult.folders.forEach(f => {
-          if (f.hash) hashMap[f.hash] = 'working'
-        })
-      }
-
-      // 扫描各归档目录
-      const departments = getDepartments()
-      const projects = getProjects()
-      const archiveTargets = [...departments, ...projects]
-      for (const target of archiveTargets) {
-        if (target.archivePath) {
-          try {
-            const archiveResult = await archiveApi.scan(target.archivePath, true)
-            if (archiveResult.success && archiveResult.folders) {
-              archiveResult.folders.forEach(f => {
-                if (f.hash) hashMap[f.hash] = 'archived'
-              })
-            }
-          } catch {
-            // 归档目录不存在时忽略
-          }
-        }
-      }
-
-      setGeneratedHashMap(hashMap)
-    } catch (err) {
-      console.error('加载已生成状态失败:', err)
-    }
-  }
 
   const timelineData = useMemo(() => buildMailTimeline(mails), [mails])
 
@@ -410,7 +262,7 @@ function MailList() {
       message.success(result.message)
 
       // 更新已生成 hash 映射
-      setGeneratedHashMap(prev => ({ ...prev, [mailHash]: 'working' }))
+      markGenerated(mailHash)
     } catch (error) {
       message.error(error.response?.data?.detail || '创建文件夹失败')
     } finally {
@@ -444,11 +296,6 @@ function MailList() {
     } else {
       setPreviewMail(mail)
     }
-  }
-
-  const getGeneratedStatus = (mail) => {
-    const mailHash = mailHashCache[mail.id]
-    return mailHash && generatedHashMap[mailHash]
   }
 
   const handlePreviewCreate = (mail) => {
@@ -555,7 +402,7 @@ function MailList() {
             <Button
               shape="circle"
               icon={<ReloadOutlined />}
-              onClick={() => fetchMails()}
+              onClick={() => fetchMails({ onRefreshed: showRefreshHint })}
               loading={refreshing}
               className="refresh-btn"
             />
