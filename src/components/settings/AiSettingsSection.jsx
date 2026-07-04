@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Alert, Button, Form, Input, message, Modal, Space, Tag } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
 import { BUILTIN_AI_MODELS, DEFAULT_AI_MODEL_ID, saveSettings } from '../../services/settings'
 
 function AiSettingsSection({ settings, onSettingsChange }) {
@@ -127,28 +128,28 @@ function AiSettingsSection({ settings, onSettingsChange }) {
   return (
     <>
       <div id="ai-settings" className="settings-block">
-        <h2>AI 设置</h2>
+        <h2>模型设置</h2>
         <div className="settings-section">
           <div className="section-header">
-            <h3>报告生成模型</h3>
+            <h3>内容生成服务</h3>
           </div>
           <Alert
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="日报和周报需要调用当前 AI 模型生成"
-            description="请为当前模型配置 API 地址、模型 ID 和 API Key。未完整配置时，日报和周报不会生成。"
+            message="日报、周报和资料检索会使用当前模型服务"
+            description="请配置 API 地址、模型 ID 和 API Key。配置不完整时，相关功能会提示先补全模型信息。"
           />
 
           <div className="ai-current-model">
             <div>
-              <div className="ai-current-title">当前模型</div>
+              <div className="ai-current-title">当前配置</div>
               <div className="ai-current-name">{selectedAiModel?.name || '未配置'}</div>
               <div className="ai-current-meta">
                 {selectedAiModel?.modelId || '-'} · {selectedAiModel?.apiUrl || '-'}
               </div>
             </div>
-            <Button type="primary" onClick={() => openAiModelModal()}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openAiModelModal()}>
               添加模型
             </Button>
           </div>
@@ -182,7 +183,7 @@ function AiSettingsSection({ settings, onSettingsChange }) {
       </div>
 
       <Modal
-        title={editingAiModel ? '编辑模型配置' : '添加 OpenAI 格式模型'}
+        title={editingAiModel ? '编辑模型配置' : '添加兼容模型'}
         open={customModelOpen}
         onOk={handleSaveAiModel}
         onCancel={closeAiModelModal}

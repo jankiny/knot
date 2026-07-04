@@ -20,7 +20,7 @@ export async function getReportAiConfig({ featureLabel }) {
   }
 
   if (!aiConfig.api_key) {
-    message.warning('AI Key 解密失败，请重新保存 AI Key')
+    message.warning('API Key 解密失败，请重新保存 API Key')
     return null
   }
 

@@ -72,7 +72,7 @@ function App() {
     { key: 'quick', icon: <PlusSquareOutlined />, label: '快速创建' },
     { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
     { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
-    { key: 'archive-ai-search', icon: <FileSearchOutlined />, label: 'AI 资料检索' },
+    { key: 'archive-ai-search', icon: <FileSearchOutlined />, label: '资料检索' },
     { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' },
     { key: 'weekly', icon: <FileTextOutlined />, label: '周报生成' }
   ]
@@ -113,7 +113,7 @@ function App() {
       case 'archive-manager':
         return '归档管理'
       case 'archive-ai-search':
-        return 'AI 资料检索'
+        return '资料检索'
       case 'daily':
         return '日报生成'
       case 'weekly':

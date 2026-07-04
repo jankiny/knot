@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Card, DatePicker, Input, message, Space, Tag } from 'antd'
-import { CopyOutlined, RobotOutlined } from '@ant-design/icons'
+import { CopyOutlined, FileTextOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { reportApi } from '../services/api'
 import { getReportAiConfig } from '../hooks/useAiConfig'
@@ -58,7 +58,7 @@ function WeeklyReport() {
     setGenerateLoading(true)
     try {
       const aiConfig = await getReportAiConfig({
-        featureLabel: 'AI 周报'
+        featureLabel: '周报生成'
       })
       if (!aiConfig) return
 
@@ -136,7 +136,7 @@ function WeeklyReport() {
             />
             <Tag color="green">已选任务：{selectedFolders.length}</Tag>
           </Space>
-          <Button type="primary" icon={<RobotOutlined />} loading={generateLoading} onClick={handleGenerate}>
+          <Button type="primary" icon={<FileTextOutlined />} loading={generateLoading} onClick={handleGenerate}>
             生成周报
           </Button>
         </div>

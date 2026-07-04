@@ -169,8 +169,8 @@
   gap: 16px;
   align-items: center;
   padding: 14px 16px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
   border-radius: 6px;
   margin: 12px 0 14px;
 }
@@ -212,8 +212,8 @@
 }
 
 .ai-model-item.active {
-  border-color: #91caff;
-  background: #f0f7ff;
+  border-color: #95de64;
+  background: #f6ffed;
 }
 
 .ai-model-main {

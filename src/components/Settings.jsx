@@ -66,7 +66,7 @@ function Settings() {
             {
               key: 'ai-settings',
               href: '#ai-settings',
-              title: 'AI 设置',
+              title: '模型设置',
             },
             {
               key: 'archive-settings',
