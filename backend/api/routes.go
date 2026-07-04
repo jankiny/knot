@@ -54,6 +54,8 @@ func SetupRoutes() *chi.Mux {
 
 		r.Get("/sop/templates", handleListSOPTemplates)
 
+		r.Post("/report/work/scan", handleScanWorkReport)
+		r.Post("/report/work/generate", handleGenerateWorkReport)
 		r.Post("/report/daily/generate", handleGenerateDailyReport)
 		r.Post("/report/weekly/generate", handleGenerateWeeklyReport)
 	})

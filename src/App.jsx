@@ -21,11 +21,10 @@ import About from './components/About'
 import ArchiveAiSearch from './components/ArchiveAiSearch'
 import AutoArchive from './components/AutoArchive'
 import ArchiveManager from './components/ArchiveManager'
-import DailyReport from './components/DailyReport'
 import MailList from './components/MailList'
 import QuickCreate from './components/QuickCreate'
 import Settings from './components/Settings'
-import WeeklyReport from './components/WeeklyReport'
+import WorkReport from './components/WorkReport'
 import { USE_MOCK } from './services/api'
 import { getSettings } from './services/settings'
 import './App.css'
@@ -73,8 +72,7 @@ function App() {
     { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
     { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
     { key: 'archive-ai-search', icon: <FileSearchOutlined />, label: '资料检索' },
-    { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' },
-    { key: 'weekly', icon: <FileTextOutlined />, label: '周报生成' }
+    { key: 'work-report', icon: <FileTextOutlined />, label: '工作报告' }
   ]
 
   const renderContent = () => {
@@ -89,10 +87,8 @@ function App() {
         return <ArchiveManager />
       case 'archive-ai-search':
         return <ArchiveAiSearch />
-      case 'daily':
-        return <DailyReport />
-      case 'weekly':
-        return <WeeklyReport />
+      case 'work-report':
+        return <WorkReport />
       case 'about':
         return <About />
       case 'settings':
@@ -114,10 +110,8 @@ function App() {
         return '归档管理'
       case 'archive-ai-search':
         return '资料检索'
-      case 'daily':
-        return '日报生成'
-      case 'weekly':
-        return '周报生成'
+      case 'work-report':
+        return '工作报告'
       case 'about':
         return '关于'
       case 'settings':

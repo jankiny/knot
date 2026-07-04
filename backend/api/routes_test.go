@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetBaseFolder_WithAbsolutePath(t *testing.T) {
@@ -153,6 +154,8 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		{"POST", "/api/archive/restore"},
 		{"POST", "/api/archive/ai-search"},
 		{"GET", "/api/sop/templates"},
+		{"POST", "/api/report/work/scan"},
+		{"POST", "/api/report/work/generate"},
 		{"POST", "/api/report/daily/generate"},
 	}
 
@@ -670,6 +673,78 @@ hash: oldhash
 	}
 	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
 		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
+	}
+}
+
+func TestHandleScanWorkReport_IncludesOldTaskTouchedInPeriod(t *testing.T) {
+	tmpDir := t.TempDir()
+	taskDir := filepath.Join(tmpDir, "2026.04.20_old_refactor")
+	_ = os.MkdirAll(taskDir, 0o755)
+
+	workRecord := `---
+type: task
+schema_version: 3
+title: old-refactor
+status: active
+created: 2026-04-20
+updated: 2026-04-20
+task_date: 2026-04-20
+source: manual
+department: ops
+archive_status: local_active
+hash: oldhash
+---
+# old-refactor
+
+## 工作过程
+
+- 2026-04-20：历史任务记录。`
+	workRecordPath := filepath.Join(taskDir, workRecordFileName)
+	_ = os.WriteFile(workRecordPath, []byte(workRecord), 0o644)
+	touchedAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.Local)
+	if err := os.Chtimes(workRecordPath, touchedAt, touchedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	router := SetupRoutes()
+	body, _ := json.Marshal(WorkReportScanRequest{
+		PeriodStart: "2026-07-01",
+		PeriodEnd:   "2026-07-07",
+		ScanPaths:   []string{tmpDir},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/report/work/scan", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Count int `json:"count"`
+		Items []struct {
+			FolderPath   string   `json:"folder_path"`
+			MatchReasons []string `json:"match_reasons"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if resp.Count != 1 || len(resp.Items) != 1 {
+		t.Fatalf("expected touched old task to be included, got count=%d body=%s", resp.Count, rr.Body.String())
+	}
+	if normalizePathKey(resp.Items[0].FolderPath) != normalizePathKey(taskDir) {
+		t.Fatalf("expected %s, got %s", taskDir, resp.Items[0].FolderPath)
+	}
+	foundReason := false
+	for _, reason := range resp.Items[0].MatchReasons {
+		if reason == "工作记录文件最近修改" {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("expected filesystem match reason, got %+v", resp.Items[0].MatchReasons)
 	}
 }
 

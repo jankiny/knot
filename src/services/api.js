@@ -175,6 +175,16 @@ export const sopApi = {
 }
 
 export const reportApi = {
+  scanWork: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/report/work/scan`, requestData)
+    return response.data
+  },
+
+  generateWork: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/report/work/generate`, requestData)
+    return response.data
+  },
+
   // 生成日报日志
   generateDaily: async (requestData) => {
     const response = await axios.post(`${API_BASE}/report/daily/generate`, requestData)

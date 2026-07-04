@@ -18,13 +18,23 @@ export function buildDefaultReportDirectories() {
     })
   }
 
+  if (settings.scanPath && normalizePathKey(settings.scanPath) !== normalizePathKey(settings.folderPath)) {
+    list.push({
+      id: 'scan-dir',
+      label: '扫描工作目录',
+      path: settings.scanPath,
+      checked: true,
+      builtin: true
+    })
+  }
+
   getDepartments().forEach((dept) => {
     if (!dept.archivePath) return
     list.push({
       id: `dept-${dept.id}`,
       label: `${dept.name}归档目录`,
       path: dept.archivePath,
-      checked: false,
+      checked: true,
       builtin: true
     })
   })
@@ -35,7 +45,7 @@ export function buildDefaultReportDirectories() {
       id: `project-${project.id}`,
       label: `${project.name}归档目录`,
       path: project.archivePath,
-      checked: false,
+      checked: true,
       builtin: true
     })
   })
