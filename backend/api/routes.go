@@ -50,6 +50,7 @@ func SetupRoutes() *chi.Mux {
 		r.Post("/archive/update-work-record", handleUpdateWorkRecord)
 		r.Get("/archive/list", handleArchiveList)
 		r.Post("/archive/restore", handleArchiveRestore)
+		r.Post("/archive/ai-search", handleArchiveAISearch)
 
 		r.Get("/sop/templates", handleListSOPTemplates)
 

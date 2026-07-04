@@ -151,6 +151,7 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		{"POST", "/api/archive/update-work-record"},
 		{"GET", "/api/archive/list"},
 		{"POST", "/api/archive/restore"},
+		{"POST", "/api/archive/ai-search"},
 		{"GET", "/api/sop/templates"},
 		{"POST", "/api/report/daily/generate"},
 	}
@@ -739,5 +740,87 @@ hash: childhash
 	gotPath := folders[0]["path"].(string)
 	if normalizePathKey(gotPath) != normalizePathKey(parent) {
 		t.Fatalf("expected %s, got %s", parent, gotPath)
+	}
+}
+
+func TestCollectArchiveSearchCandidates_RanksLocalMatches(t *testing.T) {
+	tmpDir := t.TempDir()
+	sampleDir := filepath.Join(tmpDir, "2026.05.11_sample_data")
+	otherDir := filepath.Join(tmpDir, "2026.05.12_other")
+	_ = os.MkdirAll(sampleDir, 0o755)
+	_ = os.MkdirAll(otherDir, 0o755)
+
+	sampleRecord := `---
+type: task
+schema_version: 3
+title: 样本库数据处理
+status: archived
+created: 2026-05-11
+updated: 2026-05-15
+task_date: 2026-05-11
+source: manual
+department: 科数部
+archive_status: local_archive
+hash: samplehash
+---
+# 样本库数据处理
+
+完成样本数据提取代码编写，完成样本库数据处理。`
+	otherRecord := `---
+type: task
+schema_version: 3
+title: 会议材料整理
+status: archived
+created: 2026-05-12
+updated: 2026-05-12
+task_date: 2026-05-12
+source: manual
+department: 综合部
+archive_status: local_archive
+hash: otherhash
+---
+# 会议材料整理
+
+整理会议议程。`
+	_ = os.WriteFile(filepath.Join(sampleDir, workRecordFileName), []byte(sampleRecord), 0o644)
+	_ = os.WriteFile(filepath.Join(otherDir, workRecordFileName), []byte(otherRecord), 0o644)
+
+	candidates, err := collectArchiveSearchCandidates("样本库 数据处理", []string{tmpDir}, 10)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(candidates) == 0 {
+		t.Fatalf("expected candidates")
+	}
+	if normalizePathKey(candidates[0].Path) != normalizePathKey(sampleDir) {
+		t.Fatalf("expected sample dir first, got %+v", candidates[0])
+	}
+	if candidates[0].Score <= 0 {
+		t.Fatalf("expected positive score, got %d", candidates[0].Score)
+	}
+}
+
+func TestHandleArchiveAISearch_RequiresAIConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	taskDir := filepath.Join(tmpDir, "2026.05.11_sample_data")
+	_ = os.MkdirAll(taskDir, 0o755)
+	_ = os.WriteFile(filepath.Join(taskDir, workRecordFileName), []byte(`# 样本库数据处理`), 0o644)
+
+	router := SetupRoutes()
+	body, _ := json.Marshal(ArchiveAISearchRequest{
+		Query:        "样本库",
+		ArchivePaths: []string{tmpDir},
+		AI:           DailyReportAIConfig{Enabled: false},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/archive/ai-search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
+		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
 	}
 }

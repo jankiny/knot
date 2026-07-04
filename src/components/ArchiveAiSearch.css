@@ -1,0 +1,92 @@
+.archive-ai-search {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.archive-ai-card {
+  border-radius: 8px;
+}
+
+.archive-ai-notice {
+  margin-bottom: 16px;
+}
+
+.archive-ai-controls {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.archive-ai-target-select {
+  width: 340px;
+  flex-shrink: 0;
+}
+
+.archive-ai-query {
+  flex: 1;
+}
+
+.archive-ai-target-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.archive-ai-target-option > span {
+  color: #8c8c8c;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archive-ai-result-list .ant-list-item {
+  align-items: flex-start;
+}
+
+.archive-ai-result-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.archive-ai-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.archive-ai-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.archive-ai-reason {
+  color: #333;
+  line-height: 1.6;
+}
+
+.archive-ai-path {
+  color: #8c8c8c;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.archive-ai-suggestion {
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .archive-ai-controls {
+    flex-direction: column;
+  }
+
+  .archive-ai-target-select,
+  .archive-ai-query {
+    width: 100%;
+  }
+}

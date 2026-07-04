@@ -160,6 +160,13 @@ export const archiveApi = {
   }
 }
 
+export const archiveAiApi = {
+  search: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/archive/ai-search`, requestData)
+    return response.data
+  }
+}
+
 export const sopApi = {
   listTemplates: async () => {
     const response = await axios.get(`${API_BASE}/sop/templates`)

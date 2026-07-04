@@ -4,6 +4,7 @@ import {
   BlockOutlined,
   BorderOutlined,
   CloseOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   InboxOutlined,
@@ -17,6 +18,7 @@ import {
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import About from './components/About'
+import ArchiveAiSearch from './components/ArchiveAiSearch'
 import AutoArchive from './components/AutoArchive'
 import ArchiveManager from './components/ArchiveManager'
 import DailyReport from './components/DailyReport'
@@ -70,6 +72,7 @@ function App() {
     { key: 'quick', icon: <PlusSquareOutlined />, label: '快速创建' },
     { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
     { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
+    { key: 'archive-ai-search', icon: <FileSearchOutlined />, label: 'AI 资料检索' },
     { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' },
     { key: 'weekly', icon: <FileTextOutlined />, label: '周报生成' }
   ]
@@ -84,6 +87,8 @@ function App() {
         return <AutoArchive />
       case 'archive-manager':
         return <ArchiveManager />
+      case 'archive-ai-search':
+        return <ArchiveAiSearch />
       case 'daily':
         return <DailyReport />
       case 'weekly':
@@ -107,6 +112,8 @@ function App() {
         return '当前工作'
       case 'archive-manager':
         return '归档管理'
+      case 'archive-ai-search':
+        return 'AI 资料检索'
       case 'daily':
         return '日报生成'
       case 'weekly':
