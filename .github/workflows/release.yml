@@ -184,6 +184,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify Windows update assets
+        run: node scripts/verify-release-assets.js --platform windows --version ${{ needs.prepare.outputs.full_version }} --dir dist-electron
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -272,6 +275,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify Linux update assets
+        run: node scripts/verify-release-assets.js --platform linux --version ${{ needs.prepare.outputs.full_version }} --dir dist-electron
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -303,6 +309,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./release
+
+      - name: Verify release update assets
+        run: node scripts/verify-release-assets.js --platform release --version ${{ needs.prepare.outputs.full_version }} --dir ./release
 
       - name: Generate Release Notes
         uses: actions/github-script@v7

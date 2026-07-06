@@ -36,6 +36,33 @@
   font-size: 14px;
 }
 
+.about-update-details {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+  text-align: left;
+}
+
+.about-update-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.about-update-details strong {
+  color: #262626;
+  font-weight: 600;
+  text-align: right;
+}
+
 .about-update-button {
   min-width: 180px;
   margin-top: 28px;
@@ -58,6 +85,14 @@
   color: #cf1322;
 }
 
+.about-update-status-manual,
+.about-update-status-incomplete-release,
+.about-update-status-network-unavailable,
+.about-update-status-error-handled,
+.about-update-status-unsupported {
+  color: #d46b08;
+}
+
 .about-update-status-downloaded {
   color: #389e0d;
 }
@@ -70,6 +105,30 @@
 .about-install-button {
   min-width: 180px;
   margin-top: 12px;
+}
+
+.about-update-diagnostics {
+  width: 100%;
+  margin-top: 14px;
+  text-align: left;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.about-update-diagnostics summary {
+  cursor: pointer;
+}
+
+.about-update-diagnostics pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #374151;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .about-actions .ant-btn {
