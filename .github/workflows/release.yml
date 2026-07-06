@@ -236,6 +236,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate AppImage blockmap
+        run: |
+          APP_IMAGE=$(ls dist-electron/*.AppImage 2>/dev/null | head -n 1 || true)
+          if [ -z "$APP_IMAGE" ]; then
+            echo "No AppImage artifact found, skip blockmap generation."
+            exit 0
+          fi
+
+          APP_BUILDER=$(find node_modules -type f -path "*/app-builder-bin/linux/$(node -p 'process.arch')/app-builder" | head -n 1 || true)
+          if [ -z "$APP_BUILDER" ]; then
+            echo "app-builder binary not found."
+            exit 1
+          fi
+
+          "$APP_BUILDER" blockmap --input "$APP_IMAGE" --output "${APP_IMAGE}.blockmap"
+          ls -la "${APP_IMAGE}.blockmap"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -243,6 +260,8 @@ jobs:
           path: |
             dist-electron/*.deb
             dist-electron/*.AppImage
+            dist-electron/*.AppImage.blockmap
+            dist-electron/latest-linux.yml
           retention-days: 3
           if-no-files-found: error
 
