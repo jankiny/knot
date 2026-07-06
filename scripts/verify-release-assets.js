@@ -92,7 +92,6 @@ if (platform === 'windows' || platform === 'release') {
 
 if (platform === 'linux' || platform === 'release') {
   const appImage = requireMatch(names, /^knot-linux-.+-x86_64\.AppImage$/, 'Linux AppImage')
-  requireMatch(names, /^knot-linux-.+-x86_64\.AppImage\.blockmap$/, 'Linux AppImage blockmap')
   requireMatch(names, /^knot-linux-.+-amd64\.deb$/, 'Linux deb package')
   const latestLinuxYml = requireFile(files, 'latest-linux.yml')
   verifyYml(latestLinuxYml, version, appImage)

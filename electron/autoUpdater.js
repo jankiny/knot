@@ -214,7 +214,7 @@ function createAutoUpdateService({ app, getMainWindow, stopBackend }) {
         packageName
       }
     }
-    if (!blockmap || !findAsset(release, blockmap)) {
+    if (process.platform === 'win32' && (!blockmap || !findAsset(release, blockmap))) {
       return {
         ok: false,
         reason: '当前发布包缺少增量更新文件，建议手动下载安装。',
