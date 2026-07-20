@@ -12,6 +12,7 @@ import (
 
 // WorkRecordInfo holds parsed info from 工作记录.md
 type WorkRecordInfo struct {
+	RecordType      string `json:"type"`
 	Title           string `json:"title"`
 	Department      string `json:"department"`
 	Project         string `json:"project"`
@@ -29,6 +30,7 @@ type WorkRecordInfo struct {
 	FolderName      string `json:"folder_name"`
 	SOPTemplateID   string `json:"sop_template_id"`
 	SOPTemplateName string `json:"sop_template_name"`
+	AIAccess        string `json:"ai_access"`
 }
 
 type parsedWorkRecord struct {
@@ -205,6 +207,7 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 	values := parseFrontmatterValues(frontLines)
 
 	info := &WorkRecordInfo{
+		RecordType:    "task",
 		Status:        "active",
 		ArchiveStatus: "local_active",
 		Source:        "manual",
@@ -221,6 +224,7 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 		return ""
 	}
 
+	info.RecordType = get("type")
 	info.Title = get("title")
 	if info.Title == "" {
 		info.Title = extractTitleFromBody(body)
@@ -242,6 +246,7 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 	info.FolderName = get("folder_name", "folderName")
 	info.SOPTemplateID = get("sop_template_id", "sopTemplateId")
 	info.SOPTemplateName = get("sop_template_name", "sopTemplateName")
+	info.AIAccess = get("ai_access", "aiAccess")
 
 	schemaValue := get("schema_version")
 	if schemaValue != "" {
@@ -252,6 +257,9 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 
 	if strings.TrimSpace(info.Source) == "" {
 		info.Source = "manual"
+	}
+	if strings.TrimSpace(info.RecordType) == "" {
+		info.RecordType = "task"
 	}
 	if strings.TrimSpace(info.Status) == "" {
 		info.Status = "active"
@@ -339,7 +347,7 @@ func ensureFrontmatterLines(parsed *parsedWorkRecord, folderPath string) []strin
 	}
 
 	return []string{
-		"type: task",
+		fmt.Sprintf("type: %s", info.RecordType),
 		"schema_version: 3",
 		fmt.Sprintf("title: %s", title),
 		fmt.Sprintf("status: %s", status),

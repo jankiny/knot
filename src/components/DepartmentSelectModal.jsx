@@ -10,11 +10,22 @@ import {
 } from '../services/settings'
 import './DepartmentSelectModal.css'
 
+function templateSupportsSource(template, source) {
+  const allowedSources = template.allowed_sources
+  return !Array.isArray(allowedSources) || allowedSources.length === 0 || allowedSources.includes(source)
+}
+
 function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, description, enableSop = false }) {
   const [targets, setTargets] = useState([])
   const [selectedTargetId, setSelectedTargetId] = useState(null)
   const [templates, setTemplates] = useState([])
   const [selectedTemplateId, setSelectedTemplateId] = useState(getDefaultSopTemplateId())
+
+  const templateSource = mail ? 'email' : 'manual'
+  const selectableTemplates = useMemo(() => {
+    const available = templates.length ? templates : [{ id: 'default-task', name: '通用任务' }]
+    return available.filter((template) => templateSupportsSource(template, templateSource))
+  }, [templates, templateSource])
 
   useEffect(() => {
     if (open) {
@@ -52,14 +63,15 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
           .then((result) => {
             const nextTemplates = result.templates || []
             setTemplates(nextTemplates)
-            if (!nextTemplates.some((tpl) => tpl.id === defaultTemplateId)) {
+            const supportedTemplates = nextTemplates.filter((template) => templateSupportsSource(template, templateSource))
+            if (!supportedTemplates.some((tpl) => tpl.id === defaultTemplateId)) {
               setSelectedTemplateId('default-task')
             }
           })
           .catch(() => setTemplates([]))
       }
     }
-  }, [open, enableSop])
+  }, [open, enableSop, templateSource])
 
   const options = useMemo(() => targets.map((target) => ({
     label: target.name,
@@ -124,7 +136,7 @@ function DepartmentSelectModal({ open, mail, onConfirm, onCancel, title, descrip
               placeholder="请选择标准流程"
               value={selectedTemplateId}
               onChange={setSelectedTemplateId}
-              options={(templates.length ? templates : [{ id: 'default-task', name: '通用任务' }]).map((tpl) => ({
+              options={selectableTemplates.map((tpl) => ({
                 label: tpl.name,
                 value: tpl.id,
                 desc: tpl.description,

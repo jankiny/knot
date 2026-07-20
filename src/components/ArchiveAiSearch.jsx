@@ -24,7 +24,7 @@ function getArchiveSearchTargets() {
 
 function ArchiveAiSearch() {
   const [targets] = useState(() => getArchiveSearchTargets())
-  const [selectedTargetKeys, setSelectedTargetKeys] = useState(() => getArchiveSearchTargets().map((item) => item.key))
+  const [selectedTargetKeys, setSelectedTargetKeys] = useState([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [matches, setMatches] = useState([])
@@ -95,6 +95,13 @@ function ArchiveAiSearch() {
   return (
     <div className="archive-ai-search">
       <Card title="检索条件" className="archive-ai-card">
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="资料检索会调用当前配置的模型服务"
+          description="仅会扫描你明确选择的归档范围，并发送匹配候选的路径、标题、归属和工作记录摘要。带 NoAI、Private、隐私等敏感标识的路径会被自动跳过。"
+        />
         <div className="archive-ai-controls">
           <div className="archive-ai-field archive-ai-range-field">
             <div className="archive-ai-label">归档范围</div>

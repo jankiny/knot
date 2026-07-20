@@ -138,7 +138,7 @@ function AiSettingsSection({ settings, onSettingsChange }) {
             showIcon
             style={{ marginBottom: 16 }}
             message="日报、周报和资料检索会使用当前模型服务"
-            description="请配置 API 地址、模型 ID 和 API Key。配置不完整时，相关功能会提示先补全模型信息。"
+            description="生成报告时会发送所选任务的工作记录摘要；资料检索还会发送候选归档的路径、标题和归属信息。请仅选择允许发送给当前模型服务的目录。带敏感标识的路径会由后端自动跳过。"
           />
 
           <div className="ai-current-model">

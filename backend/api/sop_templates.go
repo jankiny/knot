@@ -16,15 +16,18 @@ type SOPTemplateFile struct {
 }
 
 type SOPTemplate struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Version     string            `json:"version"`
-	Description string            `json:"description"`
-	Folders     []string          `json:"folders"`
-	Files       []SOPTemplateFile `json:"files,omitempty"`
-	Builtin     bool              `json:"builtin"`
-	Path        string            `json:"path,omitempty"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Version        string            `json:"version"`
+	Description    string            `json:"description"`
+	Folders        []string          `json:"folders"`
+	Files          []SOPTemplateFile `json:"files,omitempty"`
+	AllowedSources []string          `json:"allowed_sources,omitempty"`
+	Builtin        bool              `json:"builtin"`
+	Path           string            `json:"path,omitempty"`
 }
+
+const photoProjectSOPTemplateID = "photo-project"
 
 func defaultSOPTemplates() []SOPTemplate {
 	return []SOPTemplate{
@@ -78,7 +81,36 @@ func defaultSOPTemplates() []SOPTemplate {
 			},
 			Builtin: true,
 		},
+		{
+			ID:          photoProjectSOPTemplateID,
+			Name:        "照片项目",
+			Version:     "1.0.0",
+			Description: "用于 Lightroom Classic 原片、Photoshop 主文件和发布文件管理；仅支持快速创建",
+			Folders: []string{
+				"00_Originals",
+				"10_Masters",
+				"20_Exports/Web",
+				"20_Exports/Social",
+				"20_Exports/Print",
+				"20_Exports/Delivery",
+			},
+			AllowedSources: []string{"manual"},
+			Builtin:        true,
+		},
 	}
+}
+
+func sopTemplateSupportsSource(tpl SOPTemplate, source string) bool {
+	if len(tpl.AllowedSources) == 0 {
+		return true
+	}
+	source = strings.ToLower(strings.TrimSpace(source))
+	for _, allowed := range tpl.AllowedSources {
+		if strings.ToLower(strings.TrimSpace(allowed)) == source {
+			return true
+		}
+	}
+	return false
 }
 
 func sopTemplateRoots() []string {

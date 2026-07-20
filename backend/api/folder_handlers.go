@@ -215,6 +215,10 @@ func formatTaskDate(dateValue string, fallback time.Time) string {
 }
 
 func buildWorkRecordTemplate(req FolderRequest, folderName, folderPath, sourceType string, now time.Time, tpl SOPTemplate) string {
+	if tpl.ID == photoProjectSOPTemplateID {
+		return buildPhotoProjectWorkRecordTemplate(req, folderName, folderPath, now, tpl)
+	}
+
 	createdDate := now.Format("2006-01-02")
 	taskDate := formatTaskDate(req.Date, now)
 	title := strings.TrimSpace(req.Subject)
@@ -271,6 +275,66 @@ tags:
 `, title, createdDate, createdDate, taskDate, sourceType, req.Department, req.Project, tpl.ID, tpl.Name, projectPath, folderName, hash, title, title, taskDate)
 }
 
+func buildPhotoProjectWorkRecordTemplate(req FolderRequest, folderName, folderPath string, now time.Time, tpl SOPTemplate) string {
+	createdDate := now.Format("2006-01-02")
+	taskDate := formatTaskDate(req.Date, now)
+	title := strings.TrimSpace(req.Subject)
+	if title == "" {
+		title = folderName
+	}
+	hash := strings.TrimSpace(req.Hash)
+	projectPath := filepath.ToSlash(folderPath)
+
+	return fmt.Sprintf(`---
+type: photo_project
+schema_version: 3
+title: %s
+status: active
+created: %s
+updated: %s
+task_date: %s
+source: manual
+department: %s
+project: %s
+sop_template_id: %s
+sop_template_name: %s
+project_path: %s
+folder_name: %s
+archive_status: local_active
+ai_access: noai
+contains_personal_media: true
+hash: %s
+tags:
+  - 照片项目
+  - NoAI
+---
+
+# %s
+
+## 照片项目
+
+- 原片目录：00_Originals
+- Photoshop 主文件：10_Masters
+- 发布文件：20_Exports
+- AI 边界：原片、主文件、导出文件及其元数据默认禁止发送给 AI。
+
+## Lightroom 工作流
+
+1. 使用 Lightroom Classic 将相机文件复制导入 00_Originals。
+2. 在 Lightroom Classic 中完成筛选、评级和非破坏性调整。
+3. 需要 Photoshop 精修时，将 PSD 或 TIFF 主文件整理到 10_Masters。
+4. 按用途导出到 20_Exports 下的 Web、Social、Print 或 Delivery。
+
+## 当前进展
+
+已创建照片项目目录，等待导入和备份原片。
+
+## 下一步
+
+导入原片并建立第二份独立备份；导入后只在 Lightroom Classic 中移动或重命名照片。
+`, title, createdDate, createdDate, taskDate, req.Department, req.Project, tpl.ID, tpl.Name, projectPath, folderName, hash, title)
+}
+
 func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 	processFolderCreation(w, r, false)
 }
@@ -290,6 +354,11 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 	folderName := sanitizeFolderName(req.FolderName)
 	folderPath := filepath.Join(baseFolder, folderName)
 	sopTemplate := findSOPTemplate(req.SOPTemplateID)
+	sourceType := normalizeSource(req.Source, strings.TrimSpace(req.MailID) != "")
+	if !sopTemplateSupportsSource(sopTemplate, sourceType) {
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("SOP 模板“%s”不支持%s来源", sopTemplate.Name, sourceType))
+		return
+	}
 	sourceFolderName := sourceFolderNameForTemplate(sopTemplate)
 
 	if err := os.MkdirAll(folderPath, 0o755); err != nil {
@@ -301,7 +370,6 @@ func processFolderCreation(w http.ResponseWriter, r *http.Request, downloadAttac
 		return
 	}
 
-	sourceType := normalizeSource(req.Source, strings.TrimSpace(req.MailID) != "")
 	if sourceType == "email" {
 		if err := writeEmailSourceFiles(folderPath, req, sourceFolderName); err != nil {
 			jsonError(w, http.StatusInternalServerError, fmt.Sprintf("保存邮件来源失败: %v", err))

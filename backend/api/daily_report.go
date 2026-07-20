@@ -123,6 +123,10 @@ func handleGenerateDailyReport(w http.ResponseWriter, r *http.Request) {
 
 	logs := make([]DailyReportLog, 0, len(req.Items))
 	for _, item := range req.Items {
+		if isAIRestrictedFolderPath(item.FolderPath) {
+			jsonError(w, http.StatusForbidden, "敏感路径不允许用于 AI 报告")
+			return
+		}
 		title := fallbackTitleFromFolderName(filepath.Base(item.FolderPath))
 		department := ""
 		coreContent := ""

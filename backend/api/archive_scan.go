@@ -16,7 +16,13 @@ import (
 func countFilesRecursively(folderPath string) int {
 	count := 0
 	_ = filepath.WalkDir(folderPath, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && normalizePathKey(path) != normalizePathKey(folderPath) && isSensitivePath(path) {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && !isSensitivePath(path) {
 			count++
 		}
 		return nil
@@ -38,6 +44,9 @@ func normalizePathKey(path string) string {
 
 func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 	folderPath = normalizeScanPath(folderPath)
+	if isSensitivePath(folderPath) {
+		return nil, false
+	}
 	wrPath := filepath.Join(folderPath, workRecordFileName)
 	if _, err := os.Stat(wrPath); os.IsNotExist(err) {
 		return nil, false
@@ -63,6 +72,7 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 	}
 
 	return map[string]interface{}{
+		"type":              info.RecordType,
 		"name":              name,
 		"path":              normalizeScanPath(folderPath),
 		"modified":          modified,
@@ -85,16 +95,23 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 		"title":             info.Title,
 		"sop_template_id":   info.SOPTemplateID,
 		"sop_template_name": info.SOPTemplateName,
+		"ai_access":         info.AIAccess,
 	}, true
 }
 
 func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interface{}, error) {
-	var folders []map[string]interface{}
+	folders := []map[string]interface{}{}
 	added := map[string]bool{}
 	scanPath = normalizeScanPath(scanPath)
+	if isSensitivePath(scanPath) {
+		return folders, nil
+	}
 
 	appendFolder := func(folderPath string) {
 		cleanPath := normalizeScanPath(folderPath)
+		if isSensitivePath(cleanPath) {
+			return
+		}
 		key := normalizePathKey(cleanPath)
 		if added[key] {
 			return
@@ -111,6 +128,9 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 		err := filepath.WalkDir(scanPath, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || !d.IsDir() {
 				return nil
+			}
+			if isSensitivePath(path) {
+				return filepath.SkipDir
 			}
 			if normalizePathKey(path) == normalizePathKey(scanPath) {
 				return nil
@@ -133,7 +153,11 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 			if !entry.IsDir() {
 				continue
 			}
-			appendFolder(filepath.Join(scanPath, entry.Name()))
+			folderPath := filepath.Join(scanPath, entry.Name())
+			if isSensitivePath(folderPath) {
+				continue
+			}
+			appendFolder(folderPath)
 		}
 	}
 

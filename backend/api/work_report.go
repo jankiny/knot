@@ -433,6 +433,12 @@ func handleGenerateWorkReport(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "items cannot be empty")
 		return
 	}
+	for _, item := range req.Items {
+		if isAIRestrictedFolderPath(item.FolderPath) {
+			jsonError(w, http.StatusForbidden, "敏感路径不允许用于 AI 报告")
+			return
+		}
+	}
 	if err := validateReportAIConfig(req.AI); err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return

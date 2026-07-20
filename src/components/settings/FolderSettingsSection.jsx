@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Checkbox, Input, message, Select, Space, Switch, Tooltip } from 'antd'
+import { Button, Input, message, Select, Space, Tooltip } from 'antd'
 import { FolderOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { formatFolderName, saveSettings } from '../../services/settings'
 
@@ -16,12 +16,6 @@ const EXAMPLE_MAIL = {
   from: '张三 <zhangsan@company.com>',
   date: '2025-01-19 10:30:00'
 }
-
-const SAVE_FORMAT_OPTIONS = [
-  { label: 'TXT（纯文本）', value: 'txt' },
-  { label: 'EML（邮件原始格式）', value: 'eml' },
-  { label: 'PDF（便于打印）', value: 'pdf' }
-]
 
 function FolderSettingsSection({ settings, onSettingsChange }) {
   const [formatPreset, setFormatPreset] = useState('preset')
@@ -115,100 +109,24 @@ function FolderSettingsSection({ settings, onSettingsChange }) {
 
       <div className="settings-section" style={{ marginTop: 24 }}>
         <div className="section-header">
-          <h3>内容组织</h3>
-        </div>
-
-        <div className="setting-item inline">
-          <label>添加子目录</label>
-          <Switch
-            checked={settings.useSubFolder}
-            onChange={(checked) => updateSetting('useSubFolder', checked)}
-          />
+          <h3>标准任务结构</h3>
         </div>
         <p className="setting-hint">
-          开启后，邮件内容和附件将保存到子目录中
+          实际目录由创建任务时选择的 SOP 模板决定。以下是“通用任务”的默认结构；学习笔记、照片项目等模板会使用自己的目录。
         </p>
-
-        {settings.useSubFolder && (
-          <div className="setting-item" style={{ marginTop: 12 }}>
-            <label>子目录名称</label>
-            <Input
-              value={settings.subFolderName}
-              onChange={(e) => updateSetting('subFolderName', e.target.value)}
-              placeholder="邮件"
-            />
+        <div className="folder-structure-preview">
+          <p className="preview-label">通用任务目录预览：</p>
+          <div className="tree">
+            <div className="tree-item">{previewFolderName}/</div>
+            <div className="tree-item level-1">00_来源资料/</div>
+            <div className="tree-item level-2">email.txt（仅邮件任务）</div>
+            <div className="tree-item level-2">email.pdf（仅邮件任务）</div>
+            <div className="tree-item level-2">附件/（仅邮件任务）</div>
+            <div className="tree-item level-1">10_过程文件/</div>
+            <div className="tree-item level-1">20_成果输出/</div>
+            <div className="tree-item level-1">工作记录.md</div>
           </div>
-        )}
-
-        <div className="setting-item inline" style={{ marginTop: 16 }}>
-          <label>保存邮件正文</label>
-          <Switch
-            checked={settings.saveMailContent}
-            onChange={(checked) => updateSetting('saveMailContent', checked)}
-          />
         </div>
-
-        {settings.saveMailContent && (
-          <div className="setting-item" style={{ marginTop: 12 }}>
-            <label>正文文件名</label>
-            <Input
-              value={settings.mailContentFileName}
-              onChange={(e) => updateSetting('mailContentFileName', e.target.value)}
-              placeholder="邮件正文"
-            />
-            <p className="setting-hint">不含扩展名，扩展名由保存格式决定</p>
-          </div>
-        )}
-
-        {settings.saveMailContent && (
-          <div className="setting-item">
-            <label>保存格式</label>
-            <Checkbox.Group
-              options={SAVE_FORMAT_OPTIONS}
-              value={settings.saveFormats || ['txt']}
-              onChange={(checkedValues) => {
-                if (checkedValues.length === 0) {
-                  message.warning('请至少选择一种保存格式')
-                  return
-                }
-                updateSetting('saveFormats', checkedValues)
-              }}
-              style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-            />
-            <p className="setting-hint">
-              TXT：纯文本格式，兼容性最好；EML：邮件原始格式，可用邮件客户端打开；PDF：便于打印和分享
-            </p>
-          </div>
-        )}
-
-        {settings.useSubFolder && (
-          <div className="folder-structure-preview">
-            <p className="preview-label">目录结构预览：</p>
-            <div className="tree">
-              <div className="tree-item">{previewFolderName}/</div>
-              <div className="tree-item level-1">{settings.subFolderName}/</div>
-              {settings.saveMailContent && (settings.saveFormats || ['txt']).map((fmt) => (
-                <div key={fmt} className="tree-item level-2">{settings.mailContentFileName}.{fmt}</div>
-              ))}
-              <div className="tree-item level-2">附件1.pdf</div>
-              <div className="tree-item level-2">附件2.docx</div>
-            </div>
-          </div>
-        )}
-
-        {!settings.useSubFolder && (
-          <div className="folder-structure-preview">
-            <p className="preview-label">目录结构预览：</p>
-            <div className="tree">
-              <div className="tree-item">{previewFolderName}/</div>
-              {settings.saveMailContent && (settings.saveFormats || ['txt']).map((fmt) => (
-                <div key={fmt} className="tree-item level-1">{settings.mailContentFileName}.{fmt}</div>
-              ))}
-              <div className="tree-item level-1">附件1.pdf</div>
-              <div className="tree-item level-1">附件2.docx</div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

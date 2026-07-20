@@ -172,6 +172,9 @@ func collectArchiveSearchCandidates(query string, archivePaths []string, maxCand
 			return nil, err
 		}
 		for _, folder := range folders {
+			if isNoAIAccess(fmt.Sprint(folder["ai_access"])) {
+				continue
+			}
 			candidate := archiveCandidateFromFolder(query, folder)
 			if strings.TrimSpace(candidate.Path) == "" {
 				continue

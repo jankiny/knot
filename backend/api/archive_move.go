@@ -18,8 +18,13 @@ type ArchiveMoveRequest struct {
 }
 
 func doArchiveMove(folderPath, archivePath string, useYearFolder bool) (string, error) {
+	validatedFolderPath, err := validateTaskFolder(folderPath)
+	if err != nil {
+		return "", err
+	}
+
 	archivePath = getBaseFolder(archivePath)
-	folderPath = filepath.Clean(folderPath)
+	folderPath = validatedFolderPath
 	folderName := filepath.Base(folderPath)
 
 	year := "其他"
@@ -160,9 +165,9 @@ func handleArchiveRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	source := filepath.Clean(strings.TrimSpace(req.FolderPath))
-	if source == "" {
-		jsonError(w, http.StatusBadRequest, "folder_path is required")
+	source, err := validateTaskFolder(req.FolderPath)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	restoreRoot := getBaseFolder(req.RestorePath)
@@ -256,6 +261,10 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 	currentFolderPath := filepath.Clean(strings.TrimSpace(req.FolderPath))
 	if currentFolderPath == "" {
 		jsonError(w, http.StatusBadRequest, "folder_path is required")
+		return
+	}
+	if isSensitivePath(currentFolderPath) {
+		jsonError(w, http.StatusForbidden, "敏感路径不允许由 Knot 处理")
 		return
 	}
 
