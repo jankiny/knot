@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Modal, Progress, Space, Typography, message } from 'antd'
 import {
   CopyOutlined,
   DownloadOutlined,
   GithubOutlined,
+  InfoCircleOutlined,
   MailOutlined,
   ReloadOutlined
 } from '@ant-design/icons'
@@ -39,6 +40,13 @@ const openExternal = async (url) => {
 }
 
 const isBusyStatus = (status) => ['checking', 'available', 'downloading'].includes(status)
+const requiresManualUpdate = (status) => [
+  'manual',
+  'incomplete-release',
+  'network-unavailable',
+  'unsupported',
+  'error-handled'
+].includes(status)
 
 const formatVersion = (version) => {
   if (!version) return '未获取到'
@@ -48,6 +56,7 @@ const formatVersion = (version) => {
 
 function About() {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [updateDetailsOpen, setUpdateDetailsOpen] = useState(false)
   const [updateStatus, setUpdateStatus] = useState({
     status: 'idle',
     currentVersion: null,
@@ -93,11 +102,11 @@ function About() {
   const currentVersion = formatVersion(updateStatus.currentVersion || window.electronAPI?.version)
   const latestVersion = formatVersion(updateStatus.latestVersion || updateStatus.availableVersion)
   const updateStatusLabel = UPDATE_STATUS_TEXT[updateStatus.status] || UPDATE_STATUS_TEXT['error-handled']
-
-  const updateText = useMemo(() => {
-    if (!updateStatus.message) return ''
-    return updateStatus.message
-  }, [updateStatus])
+  const updateText = updateStatus.message || ''
+  const hasDiagnostics = Boolean(
+    updateStatus.diagnostics && Object.keys(updateStatus.diagnostics).length > 0
+  )
+  const hasUpdateDetails = updateStatus.status !== 'idle' || Boolean(updateText) || hasDiagnostics
 
   const handleCopyEmail = async () => {
     try {
@@ -118,7 +127,7 @@ function About() {
     const status = await window.electronAPI.checkForUpdates()
     if (status?.status === 'unsupported') {
       message.info(status.message)
-    } else if (['network-unavailable', 'incomplete-release', 'error-handled', 'manual'].includes(status?.status)) {
+    } else if (requiresManualUpdate(status?.status)) {
       message.info(status.message || '已提供手动更新入口')
     }
   }
@@ -137,78 +146,87 @@ function About() {
   return (
     <div className="about-page">
       <div className="about-panel">
-        <img
-          className="about-logo"
-          src={appIcon}
-          alt="Knot"
-          onError={(event) => {
-            event.currentTarget.style.display = 'none'
-          }}
-        />
-        <h1>Knot</h1>
-        <Text type="secondary" className="about-version">
-          当前版本 {currentVersion}
-        </Text>
-
-        <div className="about-update-details">
-          <div>
-            <span>监测通道</span>
-            <strong>{updateChannel}</strong>
-          </div>
-          <div>
-            <span>最新版本</span>
-            <strong>{latestVersion}</strong>
-          </div>
-          <div>
-            <span>更新状态</span>
-            <strong>{updateStatusLabel}</strong>
+        <div className="about-brand">
+          <img
+            className="about-logo"
+            src={appIcon}
+            alt="Knot"
+            onError={(event) => {
+              event.currentTarget.style.display = 'none'
+            }}
+          />
+          <div className="about-brand-copy">
+            <h1>Knot</h1>
+            <Text type="secondary" className="about-version">
+              当前版本 {currentVersion}
+            </Text>
           </div>
         </div>
 
-        <Button
-          type="primary"
-          size="large"
-          icon={<ReloadOutlined />}
-          loading={checking}
-          onClick={handleCheckUpdate}
-          disabled={checking}
-          className="about-update-button"
-        >
-          检查更新
-        </Button>
-
-        {updateText && (
-          <div className={`about-update-status about-update-status-${updateStatus.status}`}>
-            {updateText}
+        <section className="about-update-card" aria-label="版本更新">
+          <div className="about-update-details">
+            <div>
+              <span>监测通道</span>
+              <strong title={updateChannel}>{updateChannel}</strong>
+            </div>
+            <div>
+              <span>最新版本</span>
+              <strong title={latestVersion}>{latestVersion}</strong>
+            </div>
+            <div>
+              <span>更新状态</span>
+              <strong title={updateStatusLabel}>{updateStatusLabel}</strong>
+            </div>
           </div>
-        )}
 
-        {updateStatus.status === 'downloading' && (
-          <Progress
-            className="about-update-progress"
-            percent={progressPercent}
-            size="small"
-          />
-        )}
+          <div
+            className={`about-update-feedback about-update-feedback-${updateStatus.status}`}
+            role="status"
+            aria-live="polite"
+          >
+            {updateStatus.status === 'downloading' ? (
+              <Progress percent={progressPercent} size="small" />
+            ) : (
+              <span title={updateText || undefined}>
+                {updateText || '点击“检查更新”获取最新版本信息'}
+              </span>
+            )}
+          </div>
 
-        {updateStatus.status === 'downloaded' && (
-          <Button type="primary" onClick={handleInstallUpdate} className="about-install-button">
-            重启并安装
-          </Button>
-        )}
+          <div className="about-update-controls">
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              loading={checking}
+              onClick={handleCheckUpdate}
+              disabled={checking}
+              className="about-update-button"
+            >
+              检查更新
+            </Button>
 
-        {['manual', 'incomplete-release', 'network-unavailable', 'unsupported', 'error-handled'].includes(updateStatus.status) && (
-          <Button icon={<DownloadOutlined />} onClick={handleManualDownload} className="about-install-button">
-            打开发布页
-          </Button>
-        )}
+            <div className="about-update-primary-action">
+              {updateStatus.status === 'downloaded' ? (
+                <Button type="primary" onClick={handleInstallUpdate} block>
+                  重启并安装
+                </Button>
+              ) : requiresManualUpdate(updateStatus.status) ? (
+                <Button icon={<DownloadOutlined />} onClick={handleManualDownload} block>
+                  打开发布页
+                </Button>
+              ) : null}
+            </div>
 
-        {updateStatus.status !== 'idle' && updateStatus.diagnostics && Object.keys(updateStatus.diagnostics).length > 0 && (
-          <details className="about-update-diagnostics">
-            <summary>更新诊断信息</summary>
-            <pre>{JSON.stringify(updateStatus.diagnostics, null, 2)}</pre>
-          </details>
-        )}
+            <Button
+              icon={<InfoCircleOutlined />}
+              onClick={() => setUpdateDetailsOpen(true)}
+              disabled={!hasUpdateDetails}
+              className="about-update-details-button"
+            >
+              更新详情
+            </Button>
+          </div>
+        </section>
 
         <Space className="about-actions">
           <Button icon={<DownloadOutlined />} onClick={() => openExternal(updateStatus.releaseUrl || RELEASE_URL)}>
@@ -224,6 +242,59 @@ function About() {
 
         <div className="about-copyright">版权所有 2026 Knot</div>
       </div>
+
+      <Modal
+        title="更新详情"
+        open={updateDetailsOpen}
+        onCancel={() => setUpdateDetailsOpen(false)}
+        footer={[
+          updateStatus.status === 'downloaded' ? (
+            <Button key="install" type="primary" onClick={handleInstallUpdate}>
+              重启并安装
+            </Button>
+          ) : null,
+          requiresManualUpdate(updateStatus.status) ? (
+            <Button key="release" type="primary" icon={<DownloadOutlined />} onClick={handleManualDownload}>
+              打开发布页
+            </Button>
+          ) : null,
+          <Button key="close" onClick={() => setUpdateDetailsOpen(false)}>
+            关闭
+          </Button>
+        ].filter(Boolean)}
+      >
+        <div className="about-update-modal">
+          <div className="about-update-modal-summary">
+            <div>
+              <span>当前版本</span>
+              <strong>{currentVersion}</strong>
+            </div>
+            <div>
+              <span>最新版本</span>
+              <strong>{latestVersion}</strong>
+            </div>
+            <div>
+              <span>更新状态</span>
+              <strong>{updateStatusLabel}</strong>
+            </div>
+          </div>
+
+          <div className="about-update-modal-message">
+            {updateText || '暂无更多更新说明。'}
+          </div>
+
+          {updateStatus.status === 'downloading' ? (
+            <Progress percent={progressPercent} />
+          ) : null}
+
+          {hasDiagnostics ? (
+            <div className="about-update-diagnostics">
+              <div className="about-update-diagnostics-title">更新诊断信息</div>
+              <pre>{JSON.stringify(updateStatus.diagnostics, null, 2)}</pre>
+            </div>
+          ) : null}
+        </div>
+      </Modal>
 
       <Modal
         title="意见反馈"
