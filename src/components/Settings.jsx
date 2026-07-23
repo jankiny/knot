@@ -7,6 +7,7 @@ import FolderSettingsSection from './settings/FolderSettingsSection'
 import GeneralSettingsSection from './settings/GeneralSettingsSection'
 import MailSettingsSection from './settings/MailSettingsSection'
 import SopSettingsSection from './settings/SopSettingsSection'
+import SourceRootsSettingsSection from './settings/SourceRootsSettingsSection'
 import './Settings.css'
 
 function Settings({ onSettingsChange }) {
@@ -41,6 +42,10 @@ function Settings({ onSettingsChange }) {
         <Divider />
 
         <ArchiveSettingsSection onSettingsChange={handleSettingsChange} />
+
+        <Divider />
+
+        <SourceRootsSettingsSection legacySettings={settings} />
       </div>
 
       {/* 右侧导航 */}
@@ -77,6 +82,11 @@ function Settings({ onSettingsChange }) {
               key: 'archive-settings',
               href: '#archive-settings',
               title: '归档设置',
+            },
+            {
+              key: 'source-roots-settings',
+              href: '#source-roots-settings',
+              title: '资料源',
             }
           ]}
         />

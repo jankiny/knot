@@ -380,3 +380,49 @@
   margin-top: 0;
   color: #1f2937;
 }
+
+.source-roots-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.source-roots-heading h2 {
+  margin-bottom: 8px;
+}
+
+.source-root-name {
+  display: grid;
+  gap: 2px;
+}
+
+.source-root-name > span:last-child {
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.source-root-scope-fields,
+.source-root-policy-fields,
+.source-root-switches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.source-root-switches .ant-form-item {
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .source-roots-heading {
+    flex-direction: column;
+  }
+
+  .source-root-scope-fields,
+  .source-root-policy-fields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"knot-backend/sources"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -18,8 +20,20 @@ const (
 	defaultSOPTemplateID = "default-task"
 )
 
-// SetupRoutes initializes the chi router with common middleware and configures endpoints.
+// Dependencies contains optional persistent services used by API handlers.
+type Dependencies struct {
+	SourceRegistry *sources.Registry
+}
+
+// SetupRoutes initializes routes without persistent services. It remains
+// available for focused legacy handler tests.
 func SetupRoutes() *chi.Mux {
+	return SetupRoutesWithDependencies(Dependencies{})
+}
+
+// SetupRoutesWithDependencies initializes the chi router with common
+// middleware and configures endpoints.
+func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -35,6 +49,8 @@ func SetupRoutes() *chi.Mux {
 	}))
 
 	r.Route("/api", func(r chi.Router) {
+		registerSourceRootRoutes(r, dependencies.SourceRegistry)
+
 		r.Post("/mail/connect", handleConnectMail)
 		r.Get("/mail/list", handleGetMailList)
 		r.Get("/mail/{mail_id}/attachments", handleGetAttachments)

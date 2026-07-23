@@ -197,3 +197,34 @@ export const reportApi = {
   }
 }
 
+export const sourceRootApi = {
+  list: async () => {
+    const response = await axios.get(`${API_BASE}/source-roots`)
+    return response.data
+  },
+
+  get: async (id) => {
+    const response = await axios.get(`${API_BASE}/source-roots/${id}`)
+    return response.data
+  },
+
+  create: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/source-roots`, requestData)
+    return response.data
+  },
+
+  update: async (id, requestData) => {
+    const response = await axios.put(`${API_BASE}/source-roots/${id}`, requestData)
+    return response.data
+  },
+
+  remove: async (id) => {
+    await axios.delete(`${API_BASE}/source-roots/${id}`)
+  },
+
+  importLegacy: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/source-roots/import-legacy`, requestData)
+    return response.data
+  }
+}
+

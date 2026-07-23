@@ -27,6 +27,7 @@ import Settings from './components/Settings'
 import WorkReport from './components/WorkReport'
 import { USE_MOCK } from './services/api'
 import { getSettings } from './services/settings'
+import { importLegacySourceRoots } from './services/sourceRoots'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
@@ -53,6 +54,15 @@ function App() {
       window.removeEventListener('openSettings', handleOpenSettings)
       window.removeEventListener('focus', handleFocus)
     }
+  }, [])
+
+  useEffect(() => {
+    importLegacySourceRoots(settings).catch((error) => {
+      console.warn('资料源 legacy 导入暂未完成:', error?.message || error)
+    })
+  // Legacy paths are imported once at startup. Settings performs a debounced
+  // import while these path settings are being edited.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

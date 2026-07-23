@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
 	"knot-backend/api"
 	"knot-backend/appdata"
+	"knot-backend/sources"
+	"knot-backend/storage"
 )
 
 func main() {
@@ -15,7 +18,17 @@ func main() {
 	}
 	log.Printf("Application data directory resolved from %s.", dataDirectory.Source)
 
-	router := api.SetupRoutes()
+	database, err := storage.Open(context.Background(), dataDirectory)
+	if err != nil {
+		log.Fatalf("Failed to initialize application database: %v", err)
+	}
+	defer database.Close()
+	log.Printf("Application database ready at schema version %d.", storage.CurrentSchemaVersion)
+
+	sourceRegistry := sources.NewRegistry(sources.NewRepository(database))
+	router := api.SetupRoutesWithDependencies(api.Dependencies{
+		SourceRegistry: sourceRegistry,
+	})
 
 	port := "18000"
 	log.Printf("Starting Go backend server on port %s...", port)
