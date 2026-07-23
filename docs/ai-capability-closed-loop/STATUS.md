@@ -5,9 +5,9 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 2 已完成，等待进入阶段 3
-- 最后完成阶段：阶段 2 - 统一策略引擎与安全路径解析
-- 当前 schema version：1
+- 当前阶段：阶段 3 已完成，等待进入阶段 4
+- 最后完成阶段：阶段 3 - 本地增量索引与首批资料适配器
+- 当前 schema version：2
 - 当前里程碑：个人年度总结闭环
 
 ## 已确认的代码基线
@@ -18,7 +18,8 @@
 - `backend/api/archive_scan.go` 主要识别包含 `工作记录.md` 的目录。
 - `backend/api/work_report.go` 由请求传入扫描路径。
 - `backend/api/archive_ai_search.go` 由请求传入归档路径。
-- `backend/api/path_safety.go` 当前混合了本地访问限制和 AI 暴露限制。
+- `backend/policy` 与 `backend/safepath` 已统一本地/AI 策略和注册资料源相对路径解析；legacy 绝对路径仅保留在旧接口兼容层。
+- `backend/indexer` 已提供可重建的有限增量索引；尚未建立 ContextManifest、Evidence 或任何新增 AI 调用。
 - 工作区在创建本计划时已有用户修改：`README.md`。后续 Agent 不得覆盖或回退该修改。
 
 ## 阶段记录
@@ -253,9 +254,104 @@
 - 不要改动：枚举含义、严格合并规则、敏感标记 AI deny、Windows 最终路径校验、legacy API 的兼容范围；不要建立第二套路径标记或权限判断。
 - 不要提前实施：ContextManifest、Evidence、AI 调用、DOCX/PDF 正文、embedding、后台 watcher 或文件操作计划。
 
+## Stage 3 - 本地增量索引与首批资料适配器
+
+- 状态：completed
+- 分支：`dev`
+- 提交 SHA：未提交（实现前基线：`fd414e82e5644fe6281812c4d125a7518feb2fe4`）
+- 完成日期：2026-07-23
+
+### 已实现
+
+- 新增 `backend/indexer` 本地索引包，统一保存工作记录、日报、周报、普通 Markdown/TXT 和其他文件的可重建 `IndexedDocument`。
+- 每个目录和文件候选都以 `source_root_id + relative_path` 重新调用 `safepath.Resolver.Resolve`；扫描 API 不接受 legacy 绝对路径，链接越界会返回结构化 `symlink_escape`，不会读取目标正文。
+- 新增 source adapter 接口：`Name`、`Version`、`Matches`、`ReadsContentForMetadata`、`Extract`。生产适配器顺序为工作记录、Markdown、TXT、通用文件元数据。
+- 工作记录适配器通过 API 层注入现有 `readWorkRecord`，复用既有 frontmatter、标题、日期、核心内容和 `ai_access` 解析；没有复制第二套工作记录解析器。
+- Markdown extractor 识别文件名、frontmatter 和一级标题中的日报/周报类型，支持常见日期、`YYYY.Wnn` 和中文周次；仅日报、周报及工作记录保存上限内的正文片段，普通 Markdown/TXT 和其他文件不保存正文片段。
+- 增量判定使用资料源 ID、规范化相对路径、文件大小、修改时间、adapter version 和内容 SHA-256。大小/时间/版本/策略均未变化时直接 touch，不重新读取或解析；`force=true` 可强制重建。
+- 文件移动会产生一个新文档并将旧路径标为 `deleted`；删除文件保留文档 ID 和元数据、清空正文片段；离线/失效资料源将现有非 deleted 文档标为 `stale`，恢复扫描后重新变为 `ready`。
+- `ai_access=none` 和敏感路径只保存文件名、相对路径、类型、大小、修改时间及内容 hash 等本地索引元数据，不解析或保存正文片段；`metadata` 不保存正文片段。工作记录显式 `noai`/非法权限值继续 fail-closed。
+- 默认忽略：`.git`、`node_modules`、`.venv`、`venv`、`__pycache__`、`dist`、`build`、`target`、`.cache`、`coverage`、`.next`、`.nuxt`、`.output`、`.vite`、`.turbo`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`。
+- 扫描为同步有限任务，复用 HTTP request context 支持取消，不启动 watcher。达到文件数、读取字节或时间上限时返回 `partial`，且不会把本轮未看到的旧文档误标为 deleted。
+- 没有调用 AI、建立 ContextManifest/Evidence、解析 DOCX/PDF 正文、创建 embedding、增加后台监听或实现文件操作。
+
+### 数据库与 migration
+
+- schema version：2。
+- migration：`backend/storage/migrations/002_indexed_documents.sql`；未修改 migration 001。
+- 新增 `indexed_documents`：稳定文档 ID、资料源 ID、相对路径及 Windows 规范化 key、文档类型、标题、任务日期、项目 ID、大小/修改时间/hash、受限片段、索引状态、有效 AI 权限、工作记录权限覆盖、策略原因、adapter/version、错误码和扫描代次。
+- 状态枚举：`ready | stale | deleted | error`；AI 权限继续复用 `none | metadata | content`。
+- 唯一约束：`source_root_id + relative_path_key`；索引覆盖资料源/状态、文档类型/日期、项目/日期。
+- `source_root_id` 使用 `ON DELETE CASCADE`：删除资料源注册记录会同步删除其可重建索引行，但不会删除原始文件；既有 SourceRoot DELETE API 语义保持不变。
+- migration 仍由 `storage.Migrate` 在单一事务中连续执行并记录 `schema_migrations`。没有自动 down migration；恢复 schema 1 需退出 Knot 后恢复升级前数据库备份。
+- 索引重建无需删除数据库：对单一资料源或全部启用资料源调用 scan API 并传入 `{ "force": true }`。
+
+### 公共接口
+
+- Go：`indexer.NewRepository(db)`；repository 提供按资料源/路径读取、保存/touch、缺失标记 deleted 和资料源标记 stale。
+- Go：`indexer.NewScanner(registry, resolver, repository, adapters...)`。
+- Go：`indexer.DefaultLimits()` 当前为最多 10,000 个文件、512 MiB 实际读取量、单文件 10 MiB、30 秒、单片段 1,200 rune、最多返回 100 条问题。
+- Go：`indexer.Adapter`、`indexer.Extraction`、`indexer.IndexedDocument`、`indexer.ScanOptions`、`indexer.ScanResult`、`indexer.ScanAllResult`。
+- `POST /api/source-roots/{id}/scan`：扫描单一登记资料源；请求只支持可选 `{ "force": boolean }`。
+- `POST /api/source-roots/scan`：在同一全局文件数/字节/耗时预算内扫描全部 enabled 资料源；离线资料源单独返回 `unavailable`，不会导致其他可用资料源索引被删除。
+- 两个 API 都不接受路径；未知/伪造 root ID 返回 `404`，索引服务未初始化返回 `503`。
+
+### 支持范围与字段
+
+- `工作记录.md` → `work_record`：标题、任务日期、项目 scope、内容 hash、受策略保护的有限核心片段、工作记录 `ai_access` 覆盖。
+- 日报 Markdown → `journal_daily`：标题、日期、hash、有限片段。
+- 周报 Markdown → `journal_weekly`：标题、周起始日期、hash、有限片段。
+- 普通 Markdown → `markdown`；TXT → `text`：标题/文件名、日期（可从安全文件名识别）、大小、修改时间、hash，不保存正文片段。
+- 其他文件 → `file`：文件名、大小、修改时间、hash；超过单文件上限时仍保存最小元数据并记录 `size_limit`，不读取或解析内容。
+- PDF/DOCX 当前只会落入通用 `file` 元数据适配器，不解析正文。
+
+### 关键决策
+
+- 阶段 3 新入口完全基于资源 ID 和相对路径，没有复用 `ResolveRegisteredAbsolute`；旧接口兼容范围未扩大。
+- hash 是本地、不可逆的变更指纹，不是正文片段，也不会改变 `ai_access_effective`；阶段 4 仍必须重新应用当前策略，不能把 hash 或 stale/deleted/error 文档视为可发送证据。
+- 未完成/取消/到达上限的扫描不执行缺失删除，避免部分遍历破坏已有索引状态。
+- 普通 Markdown 只为识别日志类型和标题做本地有限解析；只有明确日报/周报会保存受限片段。
+- 当前契约与 ROADMAP 一致，无需 ADR，也没有新增 Go module 依赖。
+
+### 测试
+
+- `pnpm test -- --run`：通过，6 个测试文件、17 项测试。
+- `pnpm run build`：通过；保留 Vite CJS Node API 弃用警告和既有大 chunk 警告。
+- `$env:TEMP/TMP=<repo>/data/_test_stage3_runtime; conda run -n go go test ./...`：通过，全部 Go 包通过。
+- `conda run -n go go test -v ./indexer`：8 项通过；Windows 链接越界用例实际执行并通过，未跳过。
+- `conda run -n go go vet ./...`：通过。
+- `conda run -n go go build -buildvcs=false ./...`：通过。
+- `pnpm run backend:build:win`：通过。
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false`：通过，临时产物写入已忽略目录。
+- `node --check electron/main.js`：通过。
+- `node --check electron/preload.js`：通过。
+- `node --check electron/backendProcess.js`：通过。
+- `go mod tidy -diff`：无差异。
+- 本阶段修改 Go 文件的 `gofmt -l`：无输出；`git diff --check`：通过。
+
+### 已知问题
+
+- 增量快路径假设相同相对路径、大小和修改时间代表未变化；外部工具若在修改内容后刻意恢复相同 mtime 和大小，需要使用 `force=true` 重建才能重新计算 hash。
+- 取消和 30 秒上限在目录项之间检查；已经进入的单次操作系统文件读取不能被 Go context 中途抢占，但单文件 10 MiB 上限限制了正常读取规模。网络盘底层 I/O 长时间阻塞仍需阶段 9 做更强隔离。
+- 路径解析到实际读取之间仍存在阶段 2 已记录的 TOCTOU 窗口；扫描会逐候选重新解析，但不能阻止其他进程在校验后替换文件/链接。
+- 离线资料源会保留此前允许保存的有限片段并标为 stale；阶段 4 必须只使用 ready 文档并重新校验当前策略。资料源恢复或权限变化后的扫描会重建/清除不再允许的片段。
+- 当前扫描 API 为同步请求，没有索引状态 UI、持久 scan job 或后台 watcher；这些不是阶段 3 必需项。
+- Linux 仍只完成 amd64、`CGO_ENABLED=0` 交叉构建，未在真实 UOS/Linux 验证 symlink 与网络盘行为。
+- 仓库既有 `backend/mail/client_test.go` 仍会被全量 `gofmt -l .` 列出，本阶段未修改。
+- Vite 仍报告 CJS API 和大 chunk 警告。
+
+### 下一阶段入口
+
+- 必须先阅读：`ROADMAP.md`、本文件、`backend/indexer/`、`backend/extractors/markdown.go`、`backend/storage/migrations/002_indexed_documents.sql`、`backend/policy/`、`backend/safepath/`、`backend/sources/`。
+- 可复用接口：`indexer.Repository.ListBySource`、`indexer.IndexedDocument`、`indexer.Scanner`、`policy.Decision`、`safepath.Resolver.Resolve`、全部 index/policy reason code。
+- 阶段 4 应只查询 `ready` 文档，按当前 SourceRoot 和相对路径重新解析/判权，再形成 ContextManifest/Evidence；不要信任索引中缓存的权限结论、stale 状态或 deleted/error 文档。
+- 阶段 4 discover 请求不得接收路径，不得调用 AI；对 `ai_access=none` 完全排除，对 `metadata` 不生成正文 evidence，并把离线/错误/策略原因转为可解释缺口。
+- 不要改动：migration 001/002、SourceRoot/权限枚举含义、严格策略优先级、敏感路径 AI deny、Windows 最终路径校验、legacy API 兼容范围、adapter 的有限读取边界。
+- 不要提前实施：年度总结生成、AI Gateway、DOCX/PDF 正文、embedding、通用 Tool Calls、watcher 或文件操作计划。
+
 ## 全局未决事项
 
-- 阶段 3 需要确定索引扫描上限、adapter 契约、ignored directory 清单及 `indexed_documents` migration。
+- 阶段 4 需要确定 ContextManifest/Evidence schema、稳定候选排序、token 估算和 manifest 失效条件。
 - 阶段 5 已确定新增独立“个人总结”页面，并复用现有工作报告基础组件。
 - 阶段 6 需要分别为 DOCX 和 PDF 解析依赖记录 ADR。
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"knot-backend/indexer"
 	"knot-backend/safepath"
 	"knot-backend/sources"
 
@@ -23,7 +24,8 @@ const (
 
 // Dependencies contains optional persistent services used by API handlers.
 type Dependencies struct {
-	SourceRegistry *sources.Registry
+	SourceRegistry  *sources.Registry
+	IndexRepository *indexer.Repository
 }
 
 // SetupRoutes initializes routes without persistent services. It remains
@@ -37,8 +39,20 @@ func SetupRoutes() *chi.Mux {
 func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 	r := chi.NewRouter()
 	var safePathResolver *safepath.Resolver
+	var indexScanner *indexer.Scanner
 	if dependencies.SourceRegistry != nil {
 		safePathResolver = safepath.NewResolver(dependencies.SourceRegistry)
+		if dependencies.IndexRepository != nil {
+			indexScanner = indexer.NewScanner(
+				dependencies.SourceRegistry,
+				safePathResolver,
+				dependencies.IndexRepository,
+				indexer.NewWorkRecordAdapter(readIndexedWorkRecord),
+				indexer.NewMarkdownAdapter(),
+				indexer.NewTextAdapter(),
+				indexer.NewFileAdapter(),
+			)
+		}
 	}
 
 	r.Use(middleware.Logger)
@@ -55,6 +69,7 @@ func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 
 	r.Route("/api", func(r chi.Router) {
 		registerSourceRootRoutes(r, dependencies.SourceRegistry)
+		registerIndexScanRoutes(r, indexScanner)
 
 		r.Post("/mail/connect", handleConnectMail)
 		r.Get("/mail/list", handleGetMailList)

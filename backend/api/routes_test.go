@@ -180,6 +180,8 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		{"POST", "/api/report/work/scan"},
 		{"POST", "/api/report/work/generate"},
 		{"POST", "/api/report/daily/generate"},
+		{"POST", "/api/source-roots/scan"},
+		{"POST", "/api/source-roots/root_test/scan"},
 	}
 
 	for _, ep := range endpoints {

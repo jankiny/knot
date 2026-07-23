@@ -35,9 +35,9 @@ func TestOpenAppliesVersionedMigrationAndReopens(t *testing.T) {
 	if err := db.QueryRow(`
 		SELECT name
 		FROM sqlite_master
-		WHERE type = 'table' AND name = 'source_roots'
+		WHERE type = 'table' AND name = 'indexed_documents'
 	`).Scan(&tableName); err != nil {
-		t.Fatalf("source_roots table missing: %v", err)
+		t.Fatalf("indexed_documents table missing: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("close database: %v", err)
@@ -93,6 +93,56 @@ func TestMigrationFailureRollsBackSchemaChanges(t *testing.T) {
 	}
 	if tableCount != 0 {
 		t.Fatalf("expected all migration changes to roll back, found %d tables", tableCount)
+	}
+}
+
+func TestMigrateUpgradesVersionOneDatabaseToIndexedDocuments(t *testing.T) {
+	directory := repositoryTestDirectory(t, "storage_upgrade_v1")
+	databasePath := filepath.Join(directory.Path, DatabaseFileName)
+
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := applyMigrations(
+		context.Background(),
+		db,
+		migrations[:1],
+		migrationFiles.ReadFile,
+	); err != nil {
+		t.Fatalf("create version one database: %v", err)
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("upgrade database: %v", err)
+	}
+
+	var version int
+	if err := db.QueryRow(
+		"SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+	).Scan(&version); err != nil {
+		t.Fatalf("read upgraded schema version: %v", err)
+	}
+	if version != 2 {
+		t.Fatalf("expected schema version 2, got %d", version)
+	}
+
+	var indexCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'index'
+			AND name IN (
+				'idx_indexed_documents_source_status',
+				'idx_indexed_documents_type_date',
+				'idx_indexed_documents_project'
+			)
+	`).Scan(&indexCount); err != nil {
+		t.Fatalf("inspect indexed document indexes: %v", err)
+	}
+	if indexCount != 3 {
+		t.Fatalf("expected 3 indexed document indexes, got %d", indexCount)
 	}
 }
 

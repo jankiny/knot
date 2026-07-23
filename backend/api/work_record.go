@@ -37,6 +37,7 @@ type parsedWorkRecord struct {
 	Info         *WorkRecordInfo
 	FrontLines   []string
 	Body         string
+	RawFile      []byte
 	HasFrontmatt bool
 }
 
@@ -298,6 +299,7 @@ func readWorkRecord(filePath string) (*parsedWorkRecord, error) {
 		Info:         info,
 		FrontLines:   frontLines,
 		Body:         body,
+		RawFile:      data,
 		HasFrontmatt: hasFrontmatter,
 	}, nil
 }

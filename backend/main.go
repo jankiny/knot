@@ -7,6 +7,7 @@ import (
 
 	"knot-backend/api"
 	"knot-backend/appdata"
+	"knot-backend/indexer"
 	"knot-backend/sources"
 	"knot-backend/storage"
 )
@@ -27,7 +28,8 @@ func main() {
 
 	sourceRegistry := sources.NewRegistry(sources.NewRepository(database))
 	router := api.SetupRoutesWithDependencies(api.Dependencies{
-		SourceRegistry: sourceRegistry,
+		SourceRegistry:  sourceRegistry,
+		IndexRepository: indexer.NewRepository(database),
 	})
 
 	port := "18000"
