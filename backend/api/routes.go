@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"knot-backend/safepath"
 	"knot-backend/sources"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +36,10 @@ func SetupRoutes() *chi.Mux {
 // middleware and configures endpoints.
 func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 	r := chi.NewRouter()
+	var safePathResolver *safepath.Resolver
+	if dependencies.SourceRegistry != nil {
+		safePathResolver = safepath.NewResolver(dependencies.SourceRegistry)
+	}
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -60,12 +65,24 @@ func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 		r.Post("/folder/create-with-attachments", handleCreateFolderWithAttachments)
 		r.Get("/folder/check-hash", handleCheckHash)
 
-		r.Get("/archive/scan", handleScanWorkFolders)
-		r.Post("/archive/move", handleArchiveMove)
-		r.Post("/archive/batch-move", handleArchiveBatchMove)
-		r.Post("/archive/update-work-record", handleUpdateWorkRecord)
-		r.Get("/archive/list", handleArchiveList)
-		r.Post("/archive/restore", handleArchiveRestore)
+		r.Get("/archive/scan", func(w http.ResponseWriter, req *http.Request) {
+			handleScanWorkFoldersWithResolver(w, req, safePathResolver)
+		})
+		r.Post("/archive/move", func(w http.ResponseWriter, req *http.Request) {
+			handleArchiveMoveWithResolver(w, req, safePathResolver)
+		})
+		r.Post("/archive/batch-move", func(w http.ResponseWriter, req *http.Request) {
+			handleArchiveBatchMoveWithResolver(w, req, safePathResolver)
+		})
+		r.Post("/archive/update-work-record", func(w http.ResponseWriter, req *http.Request) {
+			handleUpdateWorkRecordWithResolver(w, req, safePathResolver)
+		})
+		r.Get("/archive/list", func(w http.ResponseWriter, req *http.Request) {
+			handleArchiveListWithResolver(w, req, safePathResolver)
+		})
+		r.Post("/archive/restore", func(w http.ResponseWriter, req *http.Request) {
+			handleArchiveRestoreWithResolver(w, req, safePathResolver)
+		})
 		r.Post("/archive/ai-search", handleArchiveAISearch)
 
 		r.Get("/sop/templates", handleListSOPTemplates)

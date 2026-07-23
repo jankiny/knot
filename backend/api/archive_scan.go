@@ -11,18 +11,29 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"knot-backend/safepath"
 )
 
 func countFilesRecursively(folderPath string) int {
+	return countFilesRecursivelyWithAuthorizer(folderPath, nil)
+}
+
+func countFilesRecursivelyWithAuthorizer(
+	folderPath string,
+	authorizeSensitivePath func(string) bool,
+) int {
 	count := 0
 	_ = filepath.WalkDir(folderPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() && normalizePathKey(path) != normalizePathKey(folderPath) && isSensitivePath(path) {
+		if d.IsDir() &&
+			normalizePathKey(path) != normalizePathKey(folderPath) &&
+			!localPathAllowed(path, authorizeSensitivePath) {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && !isSensitivePath(path) {
+		if !d.IsDir() && localPathAllowed(path, authorizeSensitivePath) {
 			count++
 		}
 		return nil
@@ -43,11 +54,22 @@ func normalizePathKey(path string) string {
 }
 
 func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
+	return readScannedFolderWithAuthorizer(folderPath, name, nil)
+}
+
+func readScannedFolderWithAuthorizer(
+	folderPath string,
+	name string,
+	authorizeSensitivePath func(string) bool,
+) (map[string]interface{}, bool) {
 	folderPath = normalizeScanPath(folderPath)
-	if isSensitivePath(folderPath) {
+	if !localPathAllowed(folderPath, authorizeSensitivePath) {
 		return nil, false
 	}
 	wrPath := filepath.Join(folderPath, workRecordFileName)
+	if !localPathAllowed(wrPath, authorizeSensitivePath) {
+		return nil, false
+	}
 	if _, err := os.Stat(wrPath); os.IsNotExist(err) {
 		return nil, false
 	}
@@ -72,20 +94,23 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 	}
 
 	return map[string]interface{}{
-		"type":              info.RecordType,
-		"name":              name,
-		"path":              normalizeScanPath(folderPath),
-		"modified":          modified,
-		"has_work_record":   true,
-		"department":        info.Department,
-		"project":           info.Project,
-		"create_time":       createTime,
-		"update_time":       info.UpdateTime,
-		"task_date":         taskDate,
-		"source":            info.Source,
-		"content":           info.Content,
-		"raw_content":       info.RawContent,
-		"file_count":        countFilesRecursively(folderPath),
+		"type":            info.RecordType,
+		"name":            name,
+		"path":            normalizeScanPath(folderPath),
+		"modified":        modified,
+		"has_work_record": true,
+		"department":      info.Department,
+		"project":         info.Project,
+		"create_time":     createTime,
+		"update_time":     info.UpdateTime,
+		"task_date":       taskDate,
+		"source":          info.Source,
+		"content":         info.Content,
+		"raw_content":     info.RawContent,
+		"file_count": countFilesRecursivelyWithAuthorizer(
+			folderPath,
+			authorizeSensitivePath,
+		),
 		"hash":              info.Hash,
 		"status":            info.Status,
 		"archive_status":    info.ArchiveStatus,
@@ -100,23 +125,35 @@ func readScannedFolder(folderPath, name string) (map[string]interface{}, bool) {
 }
 
 func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interface{}, error) {
+	return collectScannedFoldersWithAuthorizer(scanPath, recursive, nil)
+}
+
+func collectScannedFoldersWithAuthorizer(
+	scanPath string,
+	recursive bool,
+	authorizeSensitivePath func(string) bool,
+) ([]map[string]interface{}, error) {
 	folders := []map[string]interface{}{}
 	added := map[string]bool{}
 	scanPath = normalizeScanPath(scanPath)
-	if isSensitivePath(scanPath) {
+	if !localPathAllowed(scanPath, authorizeSensitivePath) {
 		return folders, nil
 	}
 
 	appendFolder := func(folderPath string) {
 		cleanPath := normalizeScanPath(folderPath)
-		if isSensitivePath(cleanPath) {
+		if !localPathAllowed(cleanPath, authorizeSensitivePath) {
 			return
 		}
 		key := normalizePathKey(cleanPath)
 		if added[key] {
 			return
 		}
-		folder, ok := readScannedFolder(cleanPath, filepath.Base(cleanPath))
+		folder, ok := readScannedFolderWithAuthorizer(
+			cleanPath,
+			filepath.Base(cleanPath),
+			authorizeSensitivePath,
+		)
 		if !ok {
 			return
 		}
@@ -129,7 +166,7 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 			if err != nil || !d.IsDir() {
 				return nil
 			}
-			if isSensitivePath(path) {
+			if !localPathAllowed(path, authorizeSensitivePath) {
 				return filepath.SkipDir
 			}
 			if normalizePathKey(path) == normalizePathKey(scanPath) {
@@ -154,7 +191,7 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 				continue
 			}
 			folderPath := filepath.Join(scanPath, entry.Name())
-			if isSensitivePath(folderPath) {
+			if !localPathAllowed(folderPath, authorizeSensitivePath) {
 				continue
 			}
 			appendFolder(folderPath)
@@ -180,7 +217,25 @@ func collectScannedFolders(scanPath string, recursive bool) ([]map[string]interf
 	return folders, nil
 }
 
+func localPathAllowed(
+	value string,
+	authorizeSensitivePath func(string) bool,
+) bool {
+	if !isSensitivePath(value) {
+		return true
+	}
+	return authorizeSensitivePath != nil && authorizeSensitivePath(value)
+}
+
 func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
+	handleScanWorkFoldersWithResolver(w, r, nil)
+}
+
+func handleScanWorkFoldersWithResolver(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolver *safepath.Resolver,
+) {
 	scanPath := r.URL.Query().Get("scan_path")
 	if scanPath == "" {
 		scanPath = "~/Desktop"
@@ -188,7 +243,11 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 	scanPath = normalizeScanPath(getBaseFolder(scanPath))
 	recursive := r.URL.Query().Get("recursive") == "true"
 
-	folders, err := collectScannedFolders(scanPath, recursive)
+	folders, err := collectScannedFoldersWithAuthorizer(
+		scanPath,
+		recursive,
+		localPathAuthorizer(r.Context(), resolver, false),
+	)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("无法读取目录: %v", err))
 		return
@@ -207,6 +266,14 @@ func handleScanWorkFolders(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleArchiveList(w http.ResponseWriter, r *http.Request) {
+	handleArchiveListWithResolver(w, r, nil)
+}
+
+func handleArchiveListWithResolver(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolver *safepath.Resolver,
+) {
 	archivePath := strings.TrimSpace(r.URL.Query().Get("archive_path"))
 	if archivePath == "" {
 		jsonError(w, http.StatusBadRequest, "archive_path is required")
@@ -229,7 +296,11 @@ func handleArchiveList(w http.ResponseWriter, r *http.Request) {
 	year := strings.TrimSpace(r.URL.Query().Get("year"))
 	archivePath = normalizeScanPath(getBaseFolder(archivePath))
 
-	folders, err := collectScannedFolders(archivePath, true)
+	folders, err := collectScannedFoldersWithAuthorizer(
+		archivePath,
+		true,
+		localPathAuthorizer(r.Context(), resolver, false),
+	)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("无法读取归档目录: %v", err))
 		return

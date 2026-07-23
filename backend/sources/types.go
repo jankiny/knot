@@ -1,7 +1,11 @@
 // Package sources implements the persistent SourceRoot registry.
 package sources
 
-import "errors"
+import (
+	"errors"
+
+	"knot-backend/policy"
+)
 
 type Kind string
 
@@ -23,20 +27,20 @@ const (
 	ScopeProject    ScopeType = "project"
 )
 
-type LocalAccess string
+type LocalAccess = policy.LocalAccess
 
 const (
-	LocalAccessNone      LocalAccess = "none"
-	LocalAccessRead      LocalAccess = "read"
-	LocalAccessReadWrite LocalAccess = "read_write"
+	LocalAccessNone      = policy.LocalAccessNone
+	LocalAccessRead      = policy.LocalAccessRead
+	LocalAccessReadWrite = policy.LocalAccessReadWrite
 )
 
-type AIAccess string
+type AIAccess = policy.AIAccess
 
 const (
-	AIAccessNone     AIAccess = "none"
-	AIAccessMetadata AIAccess = "metadata"
-	AIAccessContent  AIAccess = "content"
+	AIAccessNone     = policy.AIAccessNone
+	AIAccessMetadata = policy.AIAccessMetadata
+	AIAccessContent  = policy.AIAccessContent
 )
 
 type Availability string

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,6 +137,241 @@ func TestSourceRootAPIReportsDuplicateAndMissingPaths(t *testing.T) {
 	}
 }
 
+func TestSourceRootAPIRejectsUnsupportedAccessEnums(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		value string
+	}{
+		{name: "local access", field: "local_access", value: "owner"},
+		{name: "AI access", field: "ai_access", value: "full_text"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router, closeDatabase, sourcePath := sourceRootTestRouter(
+				t,
+				"api_invalid_"+test.field,
+			)
+			defer closeDatabase()
+
+			body := map[string]any{
+				"name":         "Reference",
+				"kind":         "reference",
+				"path":         sourcePath,
+				"local_access": "read",
+				"ai_access":    "content",
+			}
+			body[test.field] = test.value
+			response := performJSONRequest(
+				t,
+				router,
+				http.MethodPost,
+				"/api/source-roots",
+				body,
+			)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf(
+					"expected 400, got %d body=%s",
+					response.Code,
+					response.Body.String(),
+				)
+			}
+			if !strings.Contains(response.Body.String(), test.field) {
+				t.Fatalf("expected field name in error: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRegisteredNoAIRootAllowsLocalReadWriteButRemainsAIDenied(t *testing.T) {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	dataPath, err := filepath.Abs(filepath.Join(
+		workingDirectory,
+		"..",
+		"..",
+		"data",
+		"_test_stage2",
+		"api_registered_noai",
+	))
+	if err != nil {
+		t.Fatalf("resolve test data path: %v", err)
+	}
+	if err := os.RemoveAll(dataPath); err != nil {
+		t.Fatalf("reset test data path: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dataPath)
+	})
+
+	sourcePath := filepath.Join(dataPath, "PhotoLibrary_NoAI")
+	taskPath := filepath.Join(sourcePath, "2026.07.20_city")
+	if err := os.MkdirAll(taskPath, 0o700); err != nil {
+		t.Fatalf("create task path: %v", err)
+	}
+	record := `---
+type: photo_project
+title: 城市照片
+task_date: 2026-07-20
+ai_access: content
+---
+# 城市照片
+
+## 当前进展
+
+已完成选片。
+`
+	if err := os.WriteFile(
+		filepath.Join(taskPath, workRecordFileName),
+		[]byte(record),
+		0o600,
+	); err != nil {
+		t.Fatalf("write work record: %v", err)
+	}
+
+	db, err := storage.Open(context.Background(), appdata.Directory{
+		Path:   dataPath,
+		Source: appdata.SourceEnvironment,
+	})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+	registry := sources.NewRegistry(sources.NewRepository(db))
+	createdRoot, err := registry.Create(context.Background(), sources.Input{
+		Name:        "照片库",
+		Kind:        sources.KindPrivate,
+		Path:        sourcePath,
+		ScopeType:   sources.ScopeGlobal,
+		LocalAccess: sources.LocalAccessReadWrite,
+		AIAccess:    sources.AIAccessContent,
+	})
+	if err != nil {
+		t.Fatalf("register source root: %v", err)
+	}
+	router := SetupRoutesWithDependencies(Dependencies{SourceRegistry: registry})
+
+	listRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/archive/list?archive_path="+url.QueryEscape(sourcePath),
+		nil,
+	)
+	listResponse := httptest.NewRecorder()
+	router.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK ||
+		!strings.Contains(listResponse.Body.String(), `"total":1`) {
+		t.Fatalf(
+			"registered NoAI root was not locally readable: status=%d body=%s",
+			listResponse.Code,
+			listResponse.Body.String(),
+		)
+	}
+
+	updateResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/archive/update-work-record",
+		UpdateWorkRecordRequest{
+			FolderPath: taskPath,
+			Content:    "# 城市照片\n\n仅在本地更新。",
+		},
+	)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf(
+			"registered read_write NoAI root was not locally writable: status=%d body=%s",
+			updateResponse.Code,
+			updateResponse.Body.String(),
+		)
+	}
+
+	if _, err := registry.Update(context.Background(), createdRoot.ID, sources.Input{
+		Name:        "照片库",
+		Kind:        sources.KindPrivate,
+		Path:        sourcePath,
+		ScopeType:   sources.ScopeGlobal,
+		LocalAccess: sources.LocalAccessRead,
+		AIAccess:    sources.AIAccessContent,
+	}); err != nil {
+		t.Fatalf("restrict source root to read-only: %v", err)
+	}
+	readOnlyResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/archive/update-work-record",
+		UpdateWorkRecordRequest{
+			FolderPath: taskPath,
+			Content:    "# 不应写入",
+		},
+	)
+	if readOnlyResponse.Code != http.StatusForbidden {
+		t.Fatalf(
+			"read-only NoAI root unexpectedly allowed a write: status=%d body=%s",
+			readOnlyResponse.Code,
+			readOnlyResponse.Body.String(),
+		)
+	}
+
+	aiResponse := performJSONRequest(
+		t,
+		router,
+		http.MethodPost,
+		"/api/report/daily/generate",
+		DailyReportGenerateRequest{
+			Date:  "2026-07-20",
+			Items: []DailyReportItem{{FolderPath: taskPath}},
+			AI: DailyReportAIConfig{
+				Enabled: true,
+				APIURL:  "https://example.com/v1",
+				APIKey:  "test-key",
+				Model:   "test-model",
+			},
+		},
+	)
+	if aiResponse.Code != http.StatusForbidden {
+		t.Fatalf(
+			"registered NoAI path must remain denied to AI: status=%d body=%s",
+			aiResponse.Code,
+			aiResponse.Body.String(),
+		)
+	}
+}
+
+func TestUnregisteredSensitivePathRemainsDeniedToLocalWrite(t *testing.T) {
+	taskPath := filepath.Join(
+		sourceTestDirectoryPath(t, "unregistered_noai"),
+		"Unregistered_NoAI",
+	)
+	if err := os.MkdirAll(taskPath, 0o700); err != nil {
+		t.Fatalf("create task path: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(taskPath, workRecordFileName),
+		[]byte("# Private task\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write work record: %v", err)
+	}
+
+	response := performJSONRequest(
+		t,
+		SetupRoutes(),
+		http.MethodPost,
+		"/api/archive/update-work-record",
+		UpdateWorkRecordRequest{
+			FolderPath: taskPath,
+			Content:    "# Changed",
+		},
+	)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestLegacyImportAPIRejectsUnrelatedSettingsFields(t *testing.T) {
 	router, closeDatabase, sourcePath := sourceRootTestRouter(t, "api_legacy_unknown")
 	defer closeDatabase()
@@ -207,6 +443,35 @@ func sourceRootTestRouter(
 	return router, func() {
 		_ = db.Close()
 	}, sourcePath
+}
+
+func sourceTestDirectoryPath(t *testing.T, name string) string {
+	t.Helper()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	path, err := filepath.Abs(filepath.Join(
+		workingDirectory,
+		"..",
+		"..",
+		"data",
+		"_test_stage2",
+		name,
+	))
+	if err != nil {
+		t.Fatalf("resolve test directory: %v", err)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatalf("reset test directory: %v", err)
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatalf("create test directory: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(path)
+	})
+	return path
 }
 
 func performJSONRequest(

@@ -172,7 +172,7 @@ func collectArchiveSearchCandidates(query string, archivePaths []string, maxCand
 			return nil, err
 		}
 		for _, folder := range folders {
-			if isNoAIAccess(fmt.Sprint(folder["ai_access"])) {
+			if isAIRestrictedFolderPath(fmt.Sprint(folder["path"])) {
 				continue
 			}
 			candidate := archiveCandidateFromFolder(query, folder)

@@ -362,19 +362,9 @@ func validScopeType(value ScopeType) bool {
 }
 
 func validLocalAccess(value LocalAccess) bool {
-	switch value {
-	case LocalAccessNone, LocalAccessRead, LocalAccessReadWrite:
-		return true
-	default:
-		return false
-	}
+	return value.Valid()
 }
 
 func validAIAccess(value AIAccess) bool {
-	switch value {
-	case AIAccessNone, AIAccessMetadata, AIAccessContent:
-		return true
-	default:
-		return false
-	}
+	return value.Valid()
 }

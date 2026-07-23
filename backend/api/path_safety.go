@@ -1,48 +1,23 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"knot-backend/policy"
+	"knot-backend/safepath"
 )
 
-var sensitivePathMarkers = []string{
-	"noai",
-	"private",
-	"隐私",
-	"身份证",
-	"银行卡",
-	"手机号",
-	"学号信息",
-	"人员名单",
-	"家庭资料",
-	"合同原件",
-	"个人信息",
-}
-
 func isSensitivePath(value string) bool {
-	normalized := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
-	if normalized == "" {
-		return false
-	}
-	for _, marker := range sensitivePathMarkers {
-		if strings.Contains(normalized, marker) {
-			return true
-		}
-	}
-	return false
+	return policy.HasSensitivePathMarker(value)
 }
 
 func isNoAIAccess(value string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	normalized = strings.NewReplacer("_", "", "-", "", " ", "").Replace(normalized)
-	switch normalized {
-	case "noai", "none", "disabled", "deny", "denied", "forbidden", "private":
-		return true
-	default:
-		return false
-	}
+	access, present, err := policy.ParseLegacyAIAccess(value)
+	return present && (err != nil || access == policy.AIAccessNone)
 }
 
 func isAIRestrictedFolderPath(folderPath string) bool {
@@ -50,14 +25,49 @@ func isAIRestrictedFolderPath(folderPath string) bool {
 	if folderPath == "" {
 		return false
 	}
-	if isSensitivePath(folderPath) {
-		return true
-	}
+
+	var documentOverride *policy.Override
 	info, err := parseWorkRecord(filepath.Join(folderPath, workRecordFileName))
-	return err == nil && isNoAIAccess(info.AIAccess)
+	if err == nil && strings.TrimSpace(info.AIAccess) != "" {
+		aiAccess, present, parseErr := policy.ParseLegacyAIAccess(info.AIAccess)
+		if parseErr != nil {
+			return true
+		}
+		if present {
+			documentOverride = &policy.Override{AIAccess: &aiAccess}
+		}
+	}
+
+	decision, err := policy.Evaluate(policy.Evaluation{
+		Defaults: policy.Access{
+			LocalAccess: policy.LocalAccessRead,
+			AIAccess:    policy.AIAccessContent,
+		},
+		Source: policy.Access{
+			LocalAccess: policy.LocalAccessRead,
+			AIAccess:    policy.AIAccessContent,
+		},
+		Document: documentOverride,
+		Path:     folderPath,
+	})
+	return err != nil || !decision.AllowsAIContent()
 }
 
 func validateTaskFolder(value string) (string, error) {
+	return validateTaskFolderForLocal(
+		context.Background(),
+		nil,
+		value,
+		false,
+	)
+}
+
+func validateTaskFolderForLocal(
+	ctx context.Context,
+	resolver *safepath.Resolver,
+	value string,
+	requireWrite bool,
+) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("任务目录不能为空")
@@ -65,7 +75,16 @@ func validateTaskFolder(value string) (string, error) {
 
 	folderPath := filepath.Clean(value)
 	if isSensitivePath(folderPath) {
-		return "", fmt.Errorf("敏感路径不允许由 Knot 处理")
+		resolved, err := resolveRegisteredLocalPath(
+			ctx,
+			resolver,
+			folderPath,
+			requireWrite,
+		)
+		if err != nil {
+			return "", err
+		}
+		folderPath = resolved
 	}
 
 	info, err := os.Stat(folderPath)
@@ -85,4 +104,44 @@ func validateTaskFolder(value string) (string, error) {
 	}
 
 	return folderPath, nil
+}
+
+func resolveRegisteredLocalPath(
+	ctx context.Context,
+	resolver *safepath.Resolver,
+	value string,
+	requireWrite bool,
+) (string, error) {
+	if resolver == nil {
+		return "", fmt.Errorf("敏感路径必须先登记为资料源")
+	}
+	result, err := resolver.ResolveRegisteredAbsolute(ctx, value)
+	if err != nil {
+		return "", fmt.Errorf("敏感路径未通过资料源安全校验: %w", err)
+	}
+	if requireWrite && !result.Policy.AllowsLocalWrite() {
+		return "", fmt.Errorf("资料源不允许本地写入")
+	}
+	if !result.Policy.AllowsLocalRead() {
+		return "", fmt.Errorf("资料源不允许本地读取")
+	}
+	return result.AbsolutePath, nil
+}
+
+func localPathAuthorizer(
+	ctx context.Context,
+	resolver *safepath.Resolver,
+	requireWrite bool,
+) func(string) bool {
+	cache := make(map[string]bool)
+	return func(value string) bool {
+		key := normalizePathKey(value)
+		if allowed, exists := cache[key]; exists {
+			return allowed
+		}
+		_, err := resolveRegisteredLocalPath(ctx, resolver, value, requireWrite)
+		allowed := err == nil
+		cache[key] = allowed
+		return allowed
+	}
 }

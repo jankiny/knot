@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"knot-backend/safepath"
 )
 
 type ArchiveMoveRequest struct {
@@ -18,7 +21,28 @@ type ArchiveMoveRequest struct {
 }
 
 func doArchiveMove(folderPath, archivePath string, useYearFolder bool) (string, error) {
-	validatedFolderPath, err := validateTaskFolder(folderPath)
+	return doArchiveMoveWithResolver(
+		context.Background(),
+		nil,
+		folderPath,
+		archivePath,
+		useYearFolder,
+	)
+}
+
+func doArchiveMoveWithResolver(
+	ctx context.Context,
+	resolver *safepath.Resolver,
+	folderPath string,
+	archivePath string,
+	useYearFolder bool,
+) (string, error) {
+	validatedFolderPath, err := validateTaskFolderForLocal(
+		ctx,
+		resolver,
+		folderPath,
+		true,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -60,6 +84,14 @@ func doArchiveMove(folderPath, archivePath string, useYearFolder bool) (string, 
 }
 
 func handleArchiveMove(w http.ResponseWriter, r *http.Request) {
+	handleArchiveMoveWithResolver(w, r, nil)
+}
+
+func handleArchiveMoveWithResolver(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolver *safepath.Resolver,
+) {
 	var req ArchiveMoveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "无效的请求参数")
@@ -71,7 +103,13 @@ func handleArchiveMove(w http.ResponseWriter, r *http.Request) {
 		useYearFolder = *req.UseYearFolder
 	}
 
-	destPath, err := doArchiveMove(req.FolderPath, req.ArchivePath, useYearFolder)
+	destPath, err := doArchiveMoveWithResolver(
+		r.Context(),
+		resolver,
+		req.FolderPath,
+		req.ArchivePath,
+		useYearFolder,
+	)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -90,6 +128,14 @@ type BatchMoveRequest struct {
 }
 
 func handleArchiveBatchMove(w http.ResponseWriter, r *http.Request) {
+	handleArchiveBatchMoveWithResolver(w, r, nil)
+}
+
+func handleArchiveBatchMoveWithResolver(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolver *safepath.Resolver,
+) {
 	var req BatchMoveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "无效的请求参数")
@@ -105,7 +151,13 @@ func handleArchiveBatchMove(w http.ResponseWriter, r *http.Request) {
 		if item.UseYearFolder != nil {
 			useYearFolder = *item.UseYearFolder
 		}
-		destPath, err := doArchiveMove(item.FolderPath, item.ArchivePath, useYearFolder)
+		destPath, err := doArchiveMoveWithResolver(
+			r.Context(),
+			resolver,
+			item.FolderPath,
+			item.ArchivePath,
+			useYearFolder,
+		)
 		if err != nil {
 			failCount++
 			results = append(results, map[string]interface{}{
@@ -159,13 +211,26 @@ func uniqueRestorePath(dir, name string) string {
 }
 
 func handleArchiveRestore(w http.ResponseWriter, r *http.Request) {
+	handleArchiveRestoreWithResolver(w, r, nil)
+}
+
+func handleArchiveRestoreWithResolver(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolver *safepath.Resolver,
+) {
 	var req ArchiveRestoreRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "无效的请求参数")
 		return
 	}
 
-	source, err := validateTaskFolder(req.FolderPath)
+	source, err := validateTaskFolderForLocal(
+		r.Context(),
+		resolver,
+		req.FolderPath,
+		true,
+	)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -252,6 +317,14 @@ func buildRenamedFolderName(oldFolderName, title, created string) (string, error
 }
 
 func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
+	handleUpdateWorkRecordWithResolver(w, r, nil)
+}
+
+func handleUpdateWorkRecordWithResolver(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolver *safepath.Resolver,
+) {
 	var req UpdateWorkRecordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -264,8 +337,17 @@ func handleUpdateWorkRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isSensitivePath(currentFolderPath) {
-		jsonError(w, http.StatusForbidden, "敏感路径不允许由 Knot 处理")
-		return
+		resolved, err := resolveRegisteredLocalPath(
+			r.Context(),
+			resolver,
+			currentFolderPath,
+			true,
+		)
+		if err != nil {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		currentFolderPath = resolved
 	}
 
 	wrPath := filepath.Join(currentFolderPath, workRecordFileName)

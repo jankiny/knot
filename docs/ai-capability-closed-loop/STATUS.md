@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 1 已完成，等待进入阶段 2
-- 最后完成阶段：阶段 1 - 后端资料源注册表
+- 当前阶段：阶段 2 已完成，等待进入阶段 3
+- 最后完成阶段：阶段 2 - 统一策略引擎与安全路径解析
 - 当前 schema version：1
 - 当前里程碑：个人年度总结闭环
 
@@ -171,9 +171,91 @@
 - 阶段 2 应基于 `source_root_id + relative_path` 增加统一策略和安全路径解析；不要建立索引、读取新增正文或调用 AI。
 - 不要改动：`KNOT_DATA_DIR`/`appdata.Resolve()` 语义、SourceRoot JSON 字段含义、legacy 路径接口兼容性；不要把本地访问和 AI 暴露重新混成一个布尔值。
 
+## Stage 2 - 统一策略引擎与安全路径解析
+
+- 状态：completed
+- 分支：`dev`
+- 提交 SHA：未提交（实现前基线：`766d6c4f82b035c625c8cc5d0e0d697b77831778`）
+- 完成日期：2026-07-23
+
+### 已实现
+
+- 新增 `backend/policy` 统一策略包，集中定义并校验 `local_access=none|read|read_write`、`ai_access=none|metadata|content`；`sources` 继续保留原公共类型名和 JSON 契约，但枚举实现改为复用 `policy`。
+- 有效策略将系统默认、资料源、项目、文件/工作记录和系统硬限制视为逐层收紧的上限；任何层级的更宽权限都不能覆盖已有 deny，`local_access=none` 也会阻止 AI 暴露。
+- 敏感路径标记只产生 `ai_access=none`，不会自行压低本地权限；`NoAI`、`Private`、中文个人信息标记及原有照片项目 `ai_access: noai` 均保持 AI fail-closed。
+- 新增 `backend/safepath`：以 `source_root_id + relative_path` 查询 `sources.Registry`，拒绝伪造/未知 root ID、绝对路径混入、卷相对路径、UNC、空字符和 `..` 越界。
+- 安全解析同时比较词法路径和操作系统最终路径；允许安全的缺失末级路径，但会解析所有已存在父级。Windows 使用 `GetFinalPathNameByHandle` 展开符号链接和 junction，越出 root 返回 `symlink_escape`。
+- 提供受限的 `ResolveRegisteredAbsolute` 兼容桥：旧接口的敏感绝对路径只有能反向映射到已登记资料源并再次通过 ID 解析时才可本地处理。
+- 生产路由中的归档扫描/列表允许读取已登记、在线且本地可读的敏感资料源；工作记录更新、归档、批量归档和恢复还要求该敏感资料源为 `local_access=read_write`。未登记敏感路径继续拒绝或跳过。
+- 旧日报、周报、综合工作报告和资料检索仍保留原请求契约；AI 内容入口改为复用统一策略，`metadata` 工作记录不会作为正文候选，敏感路径仍在 AI 调用前拒绝。
+- 没有创建索引、读取新的资料类型、增加 AI 调用、增加文件操作类型或改变现有 REST 请求字段。
+
+### 数据库与 migration
+
+- schema version：1。
+- 新增/变化：无数据库结构变化，无新增 migration；`source_roots.local_access` 与 `source_roots.ai_access` 的既有字段和约束保持不变。
+
+### 公共接口
+
+- Go：`policy.Evaluate(policy.Evaluation) (policy.Decision, error)`；支持 defaults/source/project/document/system 的严格合并。
+- Go：`policy.Decision` 提供 `AllowsLocalRead`、`AllowsLocalWrite`、`AllowsAIMetadata`、`AllowsAIContent` 和 `HasReason`。
+- Go：`policy.HasSensitivePathMarker`、`policy.ParseLegacyAIAccess`。
+- Go：`safepath.NewResolver(safepath.SourceRootRegistry)`。
+- Go：`(*safepath.Resolver).Resolve(ctx, safepath.Request{SourceRootID, RelativePath})`。成功返回规范化相对路径、内部绝对/最终路径、Windows 不区分大小写的 path key 及有效策略；绝对路径字段不参与 JSON 输出。
+- Go：`(*safepath.Resolver).ResolveRegisteredAbsolute` 仅用于尚未迁移完的 legacy 绝对路径兼容，不应成为阶段 3 新代码的主入口。
+- 错误：`safepath.Reason(err)` 返回结构化 reason code。
+- REST：没有新增 endpoint，也没有改变 SourceRoot JSON；`POST/PUT /api/source-roots` 对非法访问枚举继续返回 `400`。
+
+### reason code
+
+- 根与访问：`root_disabled`、`root_offline`、`local_access_denied`、`ai_access_denied`、`metadata_only`。
+- 路径：`sensitive_path_marker`、`path_outside_root`、`symlink_escape`。
+- 为后续扫描/候选过滤预留：`unsupported_type`、`size_limit`。
+
+### 关键决策
+
+- 严格度顺序为 `none < read < read_write` 和 `none < metadata < content`；各层取更严格值，项目或文件层不能放宽资料源层，系统层和 root 状态最后收紧。
+- 敏感路径同时返回 `sensitive_path_marker` 与 `ai_access_denied`，便于后续 ContextManifest 对用户解释；`metadata` 返回 `metadata_only`，阶段 3/4 必须据此省略正文。
+- 已登记 root 为 disabled、非 online 或 `local_access=none` 时，安全解析拒绝本地读取；离线、缺失、权限不足和 unknown 当前统一归入 `root_offline`。
+- 旧普通绝对路径接口为兼容现有工作流暂不强制要求资料源 ID；只有原本被敏感标记拒绝的路径新增“已登记后可本地处理”例外。阶段 3 新代码不得继续扩散绝对路径入口。
+- Windows junction 不能只依赖 `filepath.EvalSymlinks`；本机测试证实其未展开 junction，因此使用句柄级最终路径校验。该实现不改变公共契约，无需 ADR。
+
+### 测试
+
+- `pnpm test -- --run`：通过，6 个测试文件、17 项测试。
+- `pnpm run build`：通过；保留 Vite CJS Node API 弃用警告和既有大 chunk 警告。
+- `$env:TEMP/TMP=<repo>/data/_test_stage2; conda run -n go go test ./...`：通过，新增 `policy`、`safepath` 及既有 Go 包全部通过。
+- `conda run -n go go test -v ./safepath`：通过；Windows junction 越界用例实际执行并返回 `symlink_escape`，未跳过。
+- `$env:TEMP/TMP=<repo>/data/_test_stage2; conda run -n go go build -buildvcs=false ./...`：通过。
+- `$env:TEMP/TMP=<repo>/data/_test_stage2; pnpm run backend:build:win`：通过。
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false`：通过，产物写入已忽略的 `data/_test_stage2`。
+- `node --check electron/main.js`：通过。
+- `node --check electron/preload.js`：通过。
+- `node --check electron/backendProcess.js`：通过。
+- 本阶段修改 Go 文件的 `gofmt -l` 与 `git diff --check`：通过。
+
+### 已知问题
+
+- 路径校验与后续文件打开/移动之间仍存在文件系统 TOCTOU 窗口；旧接口每次请求都会重新校验，但无法阻止其他进程在校验后替换链接。阶段 8/9 的执行器必须在操作前再次校验并结合文件状态/hash。
+- 普通 legacy 绝对路径为兼容旧工作流仍可不经资料源注册表；阶段 3 的索引入口必须只接受 root ID 与相对路径，不能复用此兼容豁免。
+- Linux 仅完成 amd64、`CGO_ENABLED=0` 交叉构建；Unix symlink 逻辑使用 `filepath.EvalSymlinks`，尚未在真实 UOS/Linux 运行。
+- 未启动 Electron 或 Go 前台服务做进程级验证；REST 使用 `httptest`，路径与策略使用单元测试。
+- 当前 Windows 系统临时目录仍不可用；Conda/Go 验证继续使用已忽略的 `data/_test_stage2`。
+- 仓库全量 `gofmt -l .` 仍列出本阶段未修改的既有文件 `backend/mail/client_test.go`；本阶段修改的 Go 文件均已格式化。
+- 本阶段只给出 `metadata_only` 策略结论；不会创建 evidence。正文省略属于阶段 3/4 消费策略时的责任。
+
+### 下一阶段入口
+
+- 必须先阅读：`ROADMAP.md`、本文件、`backend/policy/`、`backend/safepath/`、`backend/sources/`、`backend/api/work_record.go`、`backend/api/archive_scan.go`。
+- 可复用接口：`sources.Registry`、`safepath.Resolver.Resolve`、`policy.Evaluate`、`policy.Decision`、全部 reason code。
+- 数据库：阶段 3 如建立 `indexed_documents`，新增连续 migration `002` 并将 schema version 更新为 2；不要修改 migration 001。
+- 扫描规则：每个候选必须从 root ID 和相对路径重新解析；`ai_access=none` 只保存允许的最小本地元数据，`metadata` 不保存/生成正文片段，链接越界必须记录结构化排除原因。
+- 不要改动：枚举含义、严格合并规则、敏感标记 AI deny、Windows 最终路径校验、legacy API 的兼容范围；不要建立第二套路径标记或权限判断。
+- 不要提前实施：ContextManifest、Evidence、AI 调用、DOCX/PDF 正文、embedding、后台 watcher 或文件操作计划。
+
 ## 全局未决事项
 
-- 阶段 2 需要明确策略 reason code、敏感路径 deny 覆盖与 Windows junction/symlink 越界测试。
+- 阶段 3 需要确定索引扫描上限、adapter 契约、ignored directory 清单及 `indexed_documents` migration。
 - 阶段 5 已确定新增独立“个人总结”页面，并复用现有工作报告基础组件。
 - 阶段 6 需要分别为 DOCX 和 PDF 解析依赖记录 ADR。
 

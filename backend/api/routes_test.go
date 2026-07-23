@@ -803,6 +803,22 @@ func TestHandleGenerateDailyReport_RejectsNoAIWorkRecordBeforeAICall(t *testing.
 	}
 }
 
+func TestAIRestrictedFolderPathRejectsMetadataOnlyWorkRecord(t *testing.T) {
+	tmpDir := t.TempDir()
+	folderPath := filepath.Join(tmpDir, "metadata-only")
+	if err := os.MkdirAll(folderPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := "---\ntype: task\ntitle: Metadata only\nai_access: metadata\n---\n# Metadata only\n"
+	if err := os.WriteFile(filepath.Join(folderPath, workRecordFileName), []byte(record), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !isAIRestrictedFolderPath(folderPath) {
+		t.Fatal("metadata-only work record must not be used as AI content")
+	}
+}
+
 func TestHandleGenerateWeeklyReport_RequiresAIConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	inFolder := filepath.Join(tmpDir, "2026.05.11_weekly_task")
