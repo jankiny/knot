@@ -1,10 +1,22 @@
 // 设置管理模块 - 使用 localStorage 持久化
 
+import {
+  BUILTIN_AI_MODELS,
+  DEFAULT_AI_MODEL_ID,
+  normalizeAiSettings
+} from './aiSettings'
+
+export { BUILTIN_AI_MODELS, DEFAULT_AI_MODEL_ID }
+
 const SETTINGS_KEY = 'knot_settings'
 
 const DEFAULT_SETTINGS = {
   // 窗口样式: 'integrated' (一体化) | 'classic' (经典)
   windowStyle: 'integrated',
+  // 应用标题语言: 'en' (Knot) | 'zh' (绳结)
+  appTitleLanguage: 'en',
+  // 开发者模式下可查看更新诊断信息
+  developerMode: false,
   folderPath: '~/Desktop',  // 默认桌面
   // 文件夹命名格式，支持变量：
   // {{YYYY}} - 年份，{{MM}} - 月份，{{DD}} - 日期
@@ -34,31 +46,52 @@ const DEFAULT_SETTINGS = {
   departments: [],
   // 默认部门ID
   defaultDepartmentId: null,
+  projects: [],
+  defaultProjectId: null,
+  defaultSopTemplateId: 'default-task',
   // 归档扫描目录（扫描工作文件夹的位置）
   scanPath: '~/Desktop',
   // AI 日报设置
-  aiApiUrl: '',
-  aiModel: '',
+  aiApiUrl: 'https://api.deepseek.com',
+  aiModel: 'deepseek-v4-flash',
   aiApiKeyEncrypted: null,
-  enableAiDailyReport: false
+  aiCustomModels: [],
+  aiSelectedModelId: DEFAULT_AI_MODEL_ID,
+  aiModels: BUILTIN_AI_MODELS,
+  // 是否跟踪 preview/alpha 预览版更新
+  enablePreviewUpdates: false
+}
+
+function normalizeSettings(settings) {
+  return {
+    ...settings,
+    appTitleLanguage: settings.appTitleLanguage === 'zh' ? 'zh' : 'en',
+    developerMode: settings.developerMode === true,
+    ...normalizeAiSettings(settings)
+  }
 }
 
 export function getSettings() {
   try {
     const saved = localStorage.getItem(SETTINGS_KEY)
     if (saved) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }
+      const parsed = JSON.parse(saved)
+      const merged = { ...DEFAULT_SETTINGS, ...parsed }
+      if (!Object.prototype.hasOwnProperty.call(parsed, 'aiSelectedModelId') && parsed.aiModel) {
+        merged.aiSelectedModelId = parsed.aiModel
+      }
+      return normalizeSettings(merged)
     }
   } catch (e) {
     console.error('读取设置失败:', e)
   }
-  return DEFAULT_SETTINGS
+  return normalizeSettings(DEFAULT_SETTINGS)
 }
 
 export function saveSettings(updates) {
   try {
     const current = getSettings()
-    const newSettings = { ...current, ...updates }
+    const newSettings = normalizeSettings({ ...current, ...updates })
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings))
     return newSettings
   } catch (e) {
@@ -81,12 +114,13 @@ export function getDepartments() {
   return getSettings().departments || []
 }
 
-export function addDepartment(name, archivePath) {
+export function addDepartment(name, archivePath, useYearFolder = true) {
   const departments = getDepartments()
   const newDept = {
     id: generateId(),
     name,
-    archivePath
+    archivePath,
+    useYearFolder
   }
   departments.push(newDept)
   saveSettings({ departments })
@@ -132,6 +166,84 @@ export function getDefaultDepartment() {
     return getDepartmentById(settings.defaultDepartmentId)
   }
   return null
+}
+
+export function getAiModels() {
+  return getSettings().aiModels || BUILTIN_AI_MODELS
+}
+
+export function getSelectedAiModel() {
+  const settings = getSettings()
+  const models = settings.aiModels || BUILTIN_AI_MODELS
+  return models.find((model) => model.id === settings.aiSelectedModelId) ||
+    models.find((model) => model.id === DEFAULT_AI_MODEL_ID) ||
+    models[0] ||
+    null
+}
+
+export function getProjects() {
+  return getSettings().projects || []
+}
+
+export function addProject(name, archivePath, useYearFolder = false) {
+  const projects = getProjects()
+  const newProject = {
+    id: generateId(),
+    name,
+    archivePath,
+    useYearFolder
+  }
+  projects.push(newProject)
+  saveSettings({ projects })
+  return newProject
+}
+
+export function updateProject(id, updates) {
+  const projects = getProjects()
+  const index = projects.findIndex(p => p.id === id)
+  if (index !== -1) {
+    projects[index] = { ...projects[index], ...updates }
+    saveSettings({ projects })
+    return projects[index]
+  }
+  return null
+}
+
+export function deleteProject(id) {
+  const projects = getProjects()
+  const filtered = projects.filter(p => p.id !== id)
+  const settings = getSettings()
+  if (settings.defaultProjectId === id) {
+    saveSettings({ projects: filtered, defaultProjectId: null })
+  } else {
+    saveSettings({ projects: filtered })
+  }
+  return filtered
+}
+
+export function getProjectById(id) {
+  const projects = getProjects()
+  return projects.find(p => p.id === id) || null
+}
+
+export function setDefaultProject(id) {
+  saveSettings({ defaultProjectId: id })
+}
+
+export function getDefaultProject() {
+  const settings = getSettings()
+  if (settings.defaultProjectId) {
+    return getProjectById(settings.defaultProjectId)
+  }
+  return null
+}
+
+export function getDefaultSopTemplateId() {
+  return getSettings().defaultSopTemplateId || 'default-task'
+}
+
+export function setDefaultSopTemplateId(id) {
+  saveSettings({ defaultSopTemplateId: id || 'default-task' })
 }
 
 // 清理邮件主题，用于生成文件夹名称

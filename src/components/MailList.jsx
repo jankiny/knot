@@ -1,17 +1,17 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { List, Card, Button, Tag, Collapse, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
-import { FolderAddOutlined, PaperClipOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
-import { mailApi, folderApi, archiveApi, USE_MOCK } from '../services/api'
-import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments } from '../services/settings'
-import { readMailCache, saveMailCache } from '../services/mailCache'
+import { List, Button, Tag, message, Spin, Empty, Tooltip, Modal, Alert } from 'antd'
+import { ReloadOutlined, SettingOutlined } from '@ant-design/icons'
+import { mailApi, folderApi, USE_MOCK } from '../services/api'
+import { getSettings, formatFolderName, cleanSubjectForFolder, generateMailHash, getDepartments, getProjects } from '../services/settings'
+import { useMailData } from '../hooks/useMailData'
+import { useMailGenerationStatus } from '../hooks/useMailGenerationStatus'
 import DepartmentSelectModal from './DepartmentSelectModal'
+import MailItemCard from './MailItemCard'
+import MailPreviewModal from './MailPreviewModal'
+import { buildMailTimeline, formatRefreshTime, getMailMonthKey } from './mailListUtils'
 import './MailList.css'
 
 function MailList() {
-  const [mails, setMails] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [lastRefreshAt, setLastRefreshAt] = useState(0)
   const [showRefreshTip, setShowRefreshTip] = useState(false)
   const [creating, setCreating] = useState({})
   const [previewMail, setPreviewMail] = useState(null)
@@ -21,33 +21,19 @@ function MailList() {
   // 部门选择弹窗状态
   const [deptModalOpen, setDeptModalOpen] = useState(false)
   const [selectedMailForFolder, setSelectedMailForFolder] = useState(null)
-  // 连接状态
-  const [connectionError, setConnectionError] = useState(null)
-  // 已生成的邮件 hash 映射：{ mailHash: 'working' | 'archived' }
-  const [generatedHashMap, setGeneratedHashMap] = useState({})
-  // 邮件 id -> hash 缓存（用于同步渲染中查找状态）
-  const [mailHashCache, setMailHashCache] = useState({})
-
-  // 记录最近一次获取数据的天数范围
-  const [fetchDays, setFetchDays] = useState(7)
-
-  // 用于防止 StrictMode 双重调用导致的竞态条件
-  const fetchIdRef = useRef(0)
   const refreshTipTimerRef = useRef(null)
-
-  const formatRefreshTime = (timestamp) => {
-    if (!timestamp) return ''
-    try {
-      return new Date(timestamp).toLocaleTimeString('zh-CN', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      })
-    } catch {
-      return ''
-    }
-  }
+  const {
+    connectionError,
+    fetchDays,
+    fetchMails,
+    lastRefreshAt,
+    loading,
+    mails,
+    refreshing,
+    setLastRefreshAt,
+    setMails
+  } = useMailData()
+  const { getGeneratedStatus, markGenerated } = useMailGenerationStatus(mails)
 
   const showRefreshHint = (timestamp) => {
     if (!timestamp) return
@@ -61,104 +47,6 @@ function MailList() {
     }, 2600)
   }
 
-  const fetchMails = async ({ pageLoading = false, showHint = true } = {}) => {
-    // 递增 fetchId，用于忽略过时的请求结果（防止 StrictMode 双重调用竞态）
-    const currentFetchId = ++fetchIdRef.current
-    if (pageLoading) {
-      setLoading(true)
-    } else {
-      setRefreshing(true)
-    }
-    setConnectionError(null)
-    try {
-      const settings = getSettings()
-
-      // 自动连接：如果有保存的邮箱配置，先尝试连接后端
-      if (settings.mailServer && settings.mailUsername && settings.mailPasswordEncrypted) {
-        try {
-          let password = ''
-          if (window.electronAPI?.decryptPassword) {
-            password = await window.electronAPI.decryptPassword(settings.mailPasswordEncrypted) || ''
-          }
-          if (password) {
-            await mailApi.connect({
-              server: settings.mailServer,
-              port: settings.mailPort || 993,
-              username: settings.mailUsername,
-              password: password,
-              use_ssl: settings.mailUseSsl !== false
-            })
-          }
-        } catch (connectError) {
-          console.error('自动连接邮箱失败:', connectError)
-          // 连接失败不阻断，让后续 getMailList 决定错误类型
-        }
-      }
-
-      // 如果在等待期间又触发了新的 fetchMails，放弃本次结果
-      if (currentFetchId !== fetchIdRef.current) return
-
-      // 使用设置中的 limit 和 days，如果未设置则使用默认值
-      const limit = settings.mailLimit || 50
-      const days = settings.mailDays !== undefined ? settings.mailDays : 7
-
-      setFetchDays(days)
-
-      const result = await mailApi.getMailList(limit, days)
-      // 再次检查：如果在请求期间又触发了新的 fetchMails，忽略旧结果
-      if (currentFetchId !== fetchIdRef.current) return
-      const mailData = result.data || []
-      setMails(mailData)
-      const saved = saveMailCache(settings, mailData)
-      const refreshedAt = saved?.cachedAt || Date.now()
-      setLastRefreshAt(refreshedAt)
-      if (showHint) {
-        showRefreshHint(refreshedAt)
-      }
-
-      // 加载已生成状态：通过后端扫描工作目录获取已有的 hash
-      loadGeneratedHashes(mailData, settings)
-    } catch (error) {
-      // 如果是过时的请求，忽略其错误
-      if (currentFetchId !== fetchIdRef.current) return
-      if (error.code === 'ERR_NETWORK') {
-        setConnectionError('network')
-      } else if (error.response?.status === 400) {
-        // 400 表示后端正常但未配置邮箱连接
-        setConnectionError('not_configured')
-      } else if (error.response?.status === 401 || error.response?.status === 403) {
-        setConnectionError('auth')
-      } else {
-        setConnectionError('unknown')
-      }
-      if (pageLoading) {
-        setMails([])
-      }
-    } finally {
-      if (currentFetchId === fetchIdRef.current) {
-        setLoading(false)
-        setRefreshing(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const settings = getSettings()
-    const cached = readMailCache(settings)
-
-    if (cached) {
-      setMails(cached.mails || [])
-      setFetchDays(cached.mailDays)
-      setLastRefreshAt(cached.cachedAt || 0)
-      setLoading(false)
-      loadGeneratedHashes(cached.mails || [], settings)
-      fetchMails()
-      return
-    }
-
-    fetchMails({ pageLoading: true, showHint: false })
-  }, [])
-
   useEffect(() => {
     return () => {
       if (refreshTipTimerRef.current) {
@@ -167,82 +55,7 @@ function MailList() {
     }
   }, [])
 
-  // 加载已生成状态：扫描工作目录和归档目录，构建 hash -> status 映射
-  const loadGeneratedHashes = async (mailList, settings) => {
-    try {
-      // 为所有邮件预计算 hash
-      const hashCacheEntries = await Promise.all(
-        mailList.map(async (mail) => {
-          const hash = await generateMailHash(mail)
-          return [mail.id, hash]
-        })
-      )
-      const newMailHashCache = Object.fromEntries(hashCacheEntries)
-      setMailHashCache(newMailHashCache)
-
-      // 扫描工作目录
-      const scanResult = await archiveApi.scan(settings.scanPath || settings.folderPath)
-      const hashMap = {}
-      if (scanResult.success && scanResult.folders) {
-        scanResult.folders.forEach(f => {
-          if (f.hash) hashMap[f.hash] = 'working'
-        })
-      }
-
-      // 扫描各部门归档目录
-      const departments = getDepartments()
-      for (const dept of departments) {
-        if (dept.archivePath) {
-          try {
-            const archiveResult = await archiveApi.scan(dept.archivePath, true)
-            if (archiveResult.success && archiveResult.folders) {
-              archiveResult.folders.forEach(f => {
-                if (f.hash) hashMap[f.hash] = 'archived'
-              })
-            }
-          } catch {
-            // 归档目录不存在时忽略
-          }
-        }
-      }
-
-      setGeneratedHashMap(hashMap)
-    } catch (err) {
-      console.error('加载已生成状态失败:', err)
-    }
-  }
-
-  // 计算时间轴数据
-  const timelineData = useMemo(() => {
-    if (!mails || mails.length === 0) return []
-
-    const monthMap = new Map()
-
-    // mails 通常是按时间倒序排列的（最新的在前）
-    mails.forEach((mail) => {
-      if (!mail.date) return
-      const date = new Date(mail.date)
-      if (isNaN(date.getTime())) return
-
-      const year = date.getFullYear()
-      const month = date.getMonth() + 1
-      const monthKey = `${year}-${month.toString().padStart(2, '0')}`
-      const monthLabel = `${year}年${month}月`
-
-      // 因为邮件是按时间倒序的，所以我们遍历时遇到的第一个该月份的邮件就是该月份最新的邮件
-      if (!monthMap.has(monthKey)) {
-        monthMap.set(monthKey, {
-          key: monthKey,
-          label: monthLabel,
-          mailId: mail.id,
-          timestamp: date.getTime()
-        })
-      }
-    })
-
-    // 按时间倒序排列月份节点（最新的月份在上）
-    return Array.from(monthMap.values()).sort((a, b) => b.timestamp - a.timestamp)
-  }, [mails])
+  const timelineData = useMemo(() => buildMailTimeline(mails), [mails])
 
   // 监听滚动来计算当前所在的月份
   useEffect(() => {
@@ -288,10 +101,7 @@ function MailList() {
           const actualMailId = closestId.replace('mail-', '')
           const mail = mails.find(m => String(m.id) === String(actualMailId))
           if (mail && mail.date) {
-            const date = new Date(mail.date)
-            const year = date.getFullYear()
-            const month = date.getMonth() + 1
-            const monthKey = `${year}-${month.toString().padStart(2, '0')}`
+            const monthKey = getMailMonthKey(mail.date)
             setActiveMonthKey(monthKey)
           }
         }
@@ -332,7 +142,8 @@ function MailList() {
       const mailHash = await generateMailHash(mail)
       const settings = getSettings()
       const departments = getDepartments()
-      const archivePaths = departments.map(d => d.archivePath).filter(Boolean)
+      const projects = getProjects()
+      const archivePaths = [...departments, ...projects].map(item => item.archivePath).filter(Boolean)
 
       const checkResult = await folderApi.checkHash(
         mailHash,
@@ -389,17 +200,17 @@ function MailList() {
     setDeptModalOpen(true)
   }
 
-  // 确认选择部门后创建文件夹
-  const handleDeptConfirm = async (department) => {
+  // 确认选择归属后创建文件夹
+  const handleDeptConfirm = async (target, sopTemplateId) => {
     setDeptModalOpen(false)
     if (selectedMailForFolder) {
-      await handleCreateFolder(selectedMailForFolder, department)
+      await handleCreateFolder(selectedMailForFolder, target, sopTemplateId)
     }
     setSelectedMailForFolder(null)
   }
 
   // 创建文件夹（始终包含附件下载）
-  const handleCreateFolder = async (mail, department = null) => {
+  const handleCreateFolder = async (mail, target = null, sopTemplateId = 'default-task') => {
     setCreating(prev => ({ ...prev, [mail.id]: true }))
     try {
       // 如果邮件没有正文，先加载详情
@@ -438,10 +249,12 @@ function MailList() {
         save_formats: settings.saveFormats || ['txt'],
         raw_content: mailData.raw_content || '',
         attachments: mailData.attachments || [],
-        // 部门信息
-        department: department ? department.name : null,
+        // 归属信息
+        department: target?.type === 'department' ? target.name : null,
+        project: target?.type === 'project' ? target.name : null,
         source: '邮件',
-        hash: mailHash
+        hash: mailHash,
+        sop_template_id: sopTemplateId || 'default-task'
       }
 
       // 始终使用 createWithAttachments，如果有附件会自动下载
@@ -449,7 +262,7 @@ function MailList() {
       message.success(result.message)
 
       // 更新已生成 hash 映射
-      setGeneratedHashMap(prev => ({ ...prev, [mailHash]: 'working' }))
+      markGenerated(mailHash)
     } catch (error) {
       message.error(error.response?.data?.detail || '创建文件夹失败')
     } finally {
@@ -485,34 +298,9 @@ function MailList() {
     }
   }
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return ''
-    try {
-      const date = new Date(dateStr)
-      return date.toLocaleDateString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    } catch {
-      return dateStr
-    }
-  }
-
-  const formatFileSize = (bytes) => {
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-  }
-
-  // 截取邮件正文预览
-  const getBodyPreview = (body, maxLength = 100) => {
-    if (!body) return ''
-    const text = body.replace(/\n+/g, ' ').trim()
-    if (text.length <= maxLength) return text
-    return text.slice(0, maxLength) + '...'
+  const handlePreviewCreate = (mail) => {
+    setPreviewMail(null)
+    openDeptModal(mail)
   }
 
   if (loading) {
@@ -594,90 +382,15 @@ function MailList() {
             <List
               dataSource={mails}
               renderItem={(mail) => (
-                <Card className="mail-item" key={mail.id} id={`mail-${mail.id}`}>
-                  <div className="mail-content">
-                    <div className="mail-info">
-                      <div className="mail-subject">{mail.subject}</div>
-                      <div className="mail-meta">
-                        <span className="mail-from">{mail.from}</span>
-                        <span className="mail-date">{formatDate(mail.date)}</span>
-                      </div>
-                      {mail.body && (
-                        <div className="mail-body-preview">
-                          {getBodyPreview(mail.body)}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mail-actions">
-                      {(() => {
-                        const mailHash = mailHashCache[mail.id]
-                        const status = mailHash && generatedHashMap[mailHash]
-                        if (status === 'archived') {
-                          return (
-                            <Tag icon={<InboxOutlined />} color="default">
-                              已归档
-                            </Tag>
-                          )
-                        } else if (status === 'working') {
-                          return (
-                            <Tag icon={<CheckCircleOutlined />} color="success">
-                              已生成
-                            </Tag>
-                          )
-                        }
-                        return null
-                      })()}
-
-                      {(mail.attachment_count > 0 || mail.has_attachments) && (
-                        <Tag icon={<PaperClipOutlined />} color="blue">
-                          {mail.attachment_count > 0 ? `${mail.attachment_count} 个附件` : '有附件'}
-                        </Tag>
-                      )}
-
-                      <Tooltip title="预览邮件">
-                        <Button
-                          icon={<EyeOutlined />}
-                          onClick={() => handlePreviewMail(mail)}
-                          loading={loadingDetail}
-                        />
-                      </Tooltip>
-
-                      <Tooltip title={(mail.attachment_count > 0 || mail.has_attachments) ? "创建文件夹并下载附件" : "创建文件夹"}>
-                        <Button
-                          type="primary"
-                          icon={<FolderAddOutlined />}
-                          onClick={() => openDeptModal(mail)}
-                          loading={creating[mail.id]}
-                        >
-                          生成
-                        </Button>
-                      </Tooltip>
-                    </div>
-                  </div>
-
-                  {mail.attachments && mail.attachments.length > 0 && (
-                    <Collapse
-                      ghost
-                      className="attachments-collapse"
-                      items={[{
-                        key: '1',
-                        label: '查看附件详情',
-                        children: (
-                          <ul className="attachment-list">
-                            {mail.attachments.map((att, idx) => (
-                              <li key={idx}>
-                                <PaperClipOutlined />
-                                <span className="att-name">{att.filename}</span>
-                                <span className="att-size">{formatFileSize(att.size)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )
-                      }]}
-                    />
-                  )}
-                </Card>
+                <MailItemCard
+                  key={mail.id}
+                  mail={mail}
+                  status={getGeneratedStatus(mail)}
+                  creating={creating[mail.id]}
+                  loadingDetail={loadingDetail}
+                  onPreview={handlePreviewMail}
+                  onCreate={openDeptModal}
+                />
               )}
             />
           )}
@@ -689,7 +402,7 @@ function MailList() {
             <Button
               shape="circle"
               icon={<ReloadOutlined />}
-              onClick={() => fetchMails()}
+              onClick={() => fetchMails({ onRefreshed: showRefreshHint })}
               loading={refreshing}
               className="refresh-btn"
             />
@@ -712,65 +425,11 @@ function MailList() {
         </div>
       </div>
 
-      {/* 邮件预览弹窗 */}
-      <Modal
-        title={previewMail?.subject}
-        open={!!previewMail}
-        onCancel={() => setPreviewMail(null)}
-        footer={[
-          <Button key="close" onClick={() => setPreviewMail(null)}>
-            关闭
-          </Button>,
-          <Button
-            key="create"
-            type="primary"
-            icon={<FolderAddOutlined />}
-            onClick={() => {
-              setPreviewMail(null)
-              openDeptModal(previewMail)
-            }}
-          >
-            生成文件夹
-          </Button>
-        ]}
-        width={700}
-      >
-        {previewMail && (
-          <div className="mail-preview">
-            <div className="preview-header">
-              <div className="preview-meta">
-                <span className="label">发件人：</span>
-                <span className="value">{previewMail.from}</span>
-              </div>
-              <div className="preview-meta">
-                <span className="label">日期：</span>
-                <span className="value">{formatDate(previewMail.date)}</span>
-              </div>
-              {previewMail.attachment_count > 0 && (
-                <div className="preview-meta">
-                  <span className="label">附件：</span>
-                  <span className="value">{previewMail.attachment_count} 个</span>
-                </div>
-              )}
-            </div>
-            <div className="preview-body">
-              {previewMail.body || '(无正文内容)'}
-            </div>
-            {previewMail.attachments && previewMail.attachments.length > 0 && (
-              <div className="preview-attachments">
-                <div className="attachments-title">附件列表：</div>
-                <ul>
-                  {previewMail.attachments.map((att, idx) => (
-                    <li key={idx}>
-                      <PaperClipOutlined /> {att.filename} ({formatFileSize(att.size)})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      <MailPreviewModal
+        mail={previewMail}
+        onClose={() => setPreviewMail(null)}
+        onCreate={handlePreviewCreate}
+      />
 
       {/* 部门选择弹窗 */}
       <DepartmentSelectModal
@@ -781,6 +440,7 @@ function MailList() {
           setDeptModalOpen(false)
           setSelectedMailForFolder(null)
         }}
+        enableSop
       />
     </div>
   )

@@ -14,6 +14,18 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) {
+            return 'vendor-ui'
+          }
+          return 'vendor'
+        }
+      }
+    }
   }
 })

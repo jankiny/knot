@@ -48,6 +48,14 @@
   display: flex;
   flex-direction: column;
   padding: 4px 0;
+  gap: 3px;
+}
+
+.dept-option-main,
+.dept-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .dept-option-name {

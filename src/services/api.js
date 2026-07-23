@@ -98,10 +98,11 @@ export const archiveApi = {
   },
 
   // 移动单个文件夹到归档目录
-  move: async (folderPath, archivePath) => {
+  move: async (folderPath, archivePath, useYearFolder = true) => {
     const response = await axios.post(`${API_BASE}/archive/move`, {
       folder_path: folderPath,
-      archive_path: archivePath
+      archive_path: archivePath,
+      use_year_folder: useYearFolder
     })
     return response.data
   },
@@ -112,20 +113,44 @@ export const archiveApi = {
     return response.data
   },
 
+  list: async ({ archivePath, page = 1, pageSize = 30, keyword = '', year = '' }) => {
+    const response = await axios.get(`${API_BASE}/archive/list`, {
+      params: {
+        archive_path: archivePath,
+        page,
+        page_size: pageSize,
+        keyword,
+        year
+      }
+    })
+    return response.data
+  },
+
+  restore: async (folderPath, restorePath, newName = '') => {
+    const response = await axios.post(`${API_BASE}/archive/restore`, {
+      folder_path: folderPath,
+      restore_path: restorePath,
+      new_name: newName
+    })
+    return response.data
+  },
+
   // 更新工作记录
   updateWorkRecord: async (folderPath, departmentOrPayload = '', content = '', title = '') => {
     const payload = typeof departmentOrPayload === 'object' && departmentOrPayload !== null
       ? {
           folder_path: folderPath,
           department: departmentOrPayload.department || '',
+          project: departmentOrPayload.project || '',
           content: departmentOrPayload.content || '',
           title: departmentOrPayload.title || '',
           rename_folder: !!(departmentOrPayload.rename_folder || departmentOrPayload.renameFolder)
         }
       : {
-          folder_path: folderPath,
-          department: departmentOrPayload || '',
-          content: content || '',
+        folder_path: folderPath,
+        department: departmentOrPayload || '',
+        project: '',
+        content: content || '',
           title: title || '',
           rename_folder: false
         }
@@ -135,10 +160,39 @@ export const archiveApi = {
   }
 }
 
+export const archiveAiApi = {
+  search: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/archive/ai-search`, requestData)
+    return response.data
+  }
+}
+
+export const sopApi = {
+  listTemplates: async () => {
+    const response = await axios.get(`${API_BASE}/sop/templates`)
+    return response.data
+  }
+}
+
 export const reportApi = {
+  scanWork: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/report/work/scan`, requestData)
+    return response.data
+  },
+
+  generateWork: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/report/work/generate`, requestData)
+    return response.data
+  },
+
   // 生成日报日志
   generateDaily: async (requestData) => {
     const response = await axios.post(`${API_BASE}/report/daily/generate`, requestData)
+    return response.data
+  },
+
+  generateWeekly: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/report/weekly/generate`, requestData)
     return response.data
   }
 }

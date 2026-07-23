@@ -10,13 +10,20 @@ import './QuickCreate.css'
 const { Title, Text } = Typography
 const { TextArea } = Input
 
-function buildQuickCreateFolderName(settings, workContent, selectedDate) {
+export function formatQuickCreateDate(selectedDate) {
+  if (selectedDate?.format) {
+    return selectedDate.format('YYYY-MM-DD')
+  }
+  return dayjs(selectedDate).format('YYYY-MM-DD')
+}
+
+export function buildQuickCreateFolderName(settings, workContent, selectedDate) {
   const content = workContent.trim()
   if (!content) return ''
 
   return formatFolderName(settings.folderNameFormat, {
     subject: content,
-    date: selectedDate.toISOString(),
+    date: formatQuickCreateDate(selectedDate),
     from: ''
   })
 }
@@ -40,12 +47,12 @@ function QuickCreate() {
     setDeptModalOpen(true)
   }
 
-  const handleDeptConfirm = async (department) => {
+  const handleDeptConfirm = async (target, sopTemplateId) => {
     setDeptModalOpen(false)
-    await createFolder(department)
+    await createFolder(target, sopTemplateId)
   }
 
-  const createFolder = async (department = null) => {
+  const createFolder = async (target = null, sopTemplateId = 'default-task') => {
     setCreating(true)
     try {
       const settings = getSettings()
@@ -60,15 +67,17 @@ function QuickCreate() {
         folder_name: folderName,
         mail_id: null,
         subject: workContent.trim(),
-        date: selectedDate.toISOString(),
+        date: formatQuickCreateDate(selectedDate),
         from_addr: '',
         body: '',
         use_sub_folder: false,
         save_mail_content: false,
         attachments: [],
-        department: department ? department.name : null,
+        department: target?.type === 'department' ? target.name : null,
+        project: target?.type === 'project' ? target.name : null,
         source: 'manual',
-        hash: await generateFolderHash(folderName)
+        hash: await generateFolderHash(folderName),
+        sop_template_id: sopTemplateId || 'default-task'
       }
 
       const result = await folderApi.create(requestData)
@@ -146,8 +155,9 @@ function QuickCreate() {
         mail={null}
         onConfirm={handleDeptConfirm}
         onCancel={() => setDeptModalOpen(false)}
-        title="选择所属部门"
-        description="选择该任务所属部门，用于后续归档。"
+        title="选择归属"
+        description="选择该任务的归属目标，用于后续按部门或按项目归档。"
+        enableSop
       />
     </div>
   )

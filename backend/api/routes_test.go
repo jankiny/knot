@@ -10,7 +10,19 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func writeMinimalTaskRecord(t *testing.T, folderPath string) {
+	t.Helper()
+	if err := os.MkdirAll(folderPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\ntype: task\nschema_version: 3\ntitle: Test Task\nstatus: active\n---\n# Test Task\n"
+	if err := os.WriteFile(filepath.Join(folderPath, workRecordFileName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestGetBaseFolder_WithAbsolutePath(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -30,6 +42,120 @@ func TestGetBaseFolder_TildePath(t *testing.T) {
 	_ = os.RemoveAll(expected)
 }
 
+func TestDoArchiveMove_WithYearFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "2026.04.20_task")
+	archiveRoot := filepath.Join(tmpDir, "archive")
+	writeMinimalTaskRecord(t, source)
+
+	dest, err := doArchiveMove(source, archiveRoot, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := filepath.Join(archiveRoot, "2026", "2026.04.20_task")
+	if dest != expected {
+		t.Fatalf("expected %s, got %s", expected, dest)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected destination to exist: %v", err)
+	}
+}
+
+func TestDoArchiveMove_WithoutYearFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "2026.04.20_task")
+	archiveRoot := filepath.Join(tmpDir, "archive")
+	writeMinimalTaskRecord(t, source)
+
+	dest, err := doArchiveMove(source, archiveRoot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := filepath.Join(archiveRoot, "2026.04.20_task")
+	if dest != expected {
+		t.Fatalf("expected %s, got %s", expected, dest)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected destination to exist: %v", err)
+	}
+}
+
+func TestDoArchiveMove_RejectsNonTaskFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "ordinary-folder")
+	archiveRoot := filepath.Join(tmpDir, "archive")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := doArchiveMove(source, archiveRoot, false); err == nil {
+		t.Fatal("expected a folder without 工作记录.md to be rejected")
+	}
+	if _, err := os.Stat(source); err != nil {
+		t.Fatalf("expected rejected source to remain in place: %v", err)
+	}
+}
+
+func TestHandleArchiveRestore_MovesBackToWorkFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	archiveDir := filepath.Join(tmpDir, "archive")
+	workDir := filepath.Join(tmpDir, "work")
+	source := filepath.Join(archiveDir, "2026.04.20_task")
+	_ = os.MkdirAll(source, 0o755)
+	_ = os.MkdirAll(workDir, 0o755)
+
+	record := `---
+type: task
+schema_version: 3
+title: Restore Task
+status: archived
+created: 2026-04-20
+updated: 2026-04-20
+task_date: 2026-04-20
+source: manual
+department: ops
+project_path: C:/Archive
+folder_name: 2026.04.20_task
+archive_status: local_archive
+hash: h001
+---
+# Restore Task
+`
+	_ = os.WriteFile(filepath.Join(source, workRecordFileName), []byte(record), 0o644)
+
+	router := SetupRoutes()
+	body, _ := json.Marshal(ArchiveRestoreRequest{
+		FolderPath:  source,
+		RestorePath: workDir,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/archive/restore", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	dest := filepath.Join(workDir, "2026.04.20_task")
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("expected restored folder: %v", err)
+	}
+	updated, _ := os.ReadFile(filepath.Join(dest, workRecordFileName))
+	text := string(updated)
+	for _, expect := range []string{
+		"status: active",
+		"archive_status: local_active",
+		"project_path: " + filepath.ToSlash(dest),
+		"## 恢复记录",
+	} {
+		if !strings.Contains(text, expect) {
+			t.Fatalf("missing %q in restored record:\n%s", expect, text)
+		}
+	}
+}
+
 func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 	router := SetupRoutes()
 	endpoints := []struct {
@@ -47,6 +173,12 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		{"POST", "/api/archive/move"},
 		{"POST", "/api/archive/batch-move"},
 		{"POST", "/api/archive/update-work-record"},
+		{"GET", "/api/archive/list"},
+		{"POST", "/api/archive/restore"},
+		{"POST", "/api/archive/ai-search"},
+		{"GET", "/api/sop/templates"},
+		{"POST", "/api/report/work/scan"},
+		{"POST", "/api/report/work/generate"},
 		{"POST", "/api/report/daily/generate"},
 	}
 
@@ -60,6 +192,37 @@ func TestSetupRoutes_AllEndpointsRegistered(t *testing.T) {
 		if rr.Code == http.StatusMethodNotAllowed {
 			t.Fatalf("%s %s returned 405", ep.method, ep.path)
 		}
+	}
+}
+
+func TestSetupRoutes_CORSAllowsOnlyDesktopAndDevOrigins(t *testing.T) {
+	router := SetupRoutes()
+
+	allowed := httptest.NewRequest(http.MethodOptions, "/api/archive/scan", nil)
+	allowed.Header.Set("Origin", "http://localhost:5173")
+	allowed.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	allowedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(allowedRecorder, allowed)
+	if got := allowedRecorder.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("expected localhost origin to be allowed, got %q", got)
+	}
+
+	packaged := httptest.NewRequest(http.MethodOptions, "/api/archive/scan", nil)
+	packaged.Header.Set("Origin", "null")
+	packaged.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	packagedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(packagedRecorder, packaged)
+	if got := packagedRecorder.Header().Get("Access-Control-Allow-Origin"); got != "null" {
+		t.Fatalf("expected packaged file origin to be allowed, got %q", got)
+	}
+
+	blocked := httptest.NewRequest(http.MethodOptions, "/api/archive/scan", nil)
+	blocked.Header.Set("Origin", "https://example.com")
+	blocked.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	blockedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(blockedRecorder, blocked)
+	if got := blockedRecorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected foreign origin to be blocked, got %q", got)
 	}
 }
 
@@ -110,6 +273,218 @@ func TestHandleCreateFolder_ManualStructure_NewTemplate(t *testing.T) {
 		if !strings.Contains(wr, expect) {
 			t.Fatalf("work record missing %q\n%s", expect, wr)
 		}
+	}
+}
+
+func TestHandleCreateFolder_UsesTaskDateFromRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+
+	body := FolderRequest{
+		BasePath:      tmpDir,
+		FolderName:    "2026.05.01_old_task",
+		Subject:       "Old Task",
+		Date:          "2026-05-01T10:30:00Z",
+		Source:        "manual",
+		SOPTemplateID: "default-task",
+	}
+
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	wrContent, _ := os.ReadFile(filepath.Join(tmpDir, "2026.05.01_old_task", workRecordFileName))
+	wr := string(wrContent)
+	if !strings.Contains(wr, "task_date: 2026-05-01") {
+		t.Fatalf("expected task_date from request, got:\n%s", wr)
+	}
+
+	parsed, err := readWorkRecord(filepath.Join(tmpDir, "2026.05.01_old_task", workRecordFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Info.TaskDate != "2026-05-01" {
+		t.Fatalf("expected task date 2026-05-01, got %s", parsed.Info.TaskDate)
+	}
+}
+
+func TestHandleCreateFolder_LearningNotesSOP(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+
+	body := FolderRequest{
+		BasePath:      tmpDir,
+		FolderName:    "2026.05.02_learning",
+		Subject:       "Learning",
+		Date:          "2026-05-02",
+		Source:        "manual",
+		SOPTemplateID: "learning-notes",
+	}
+
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	folderPath := filepath.Join(tmpDir, "2026.05.02_learning")
+	for _, p := range []string{
+		filepath.Join(folderPath, "00_学习资料"),
+		filepath.Join(folderPath, "01_学习笔记", "学习笔记.md"),
+		filepath.Join(folderPath, "02_课后作业", "作业记录.md"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected SOP path to exist: %s (%v)", p, err)
+		}
+	}
+}
+
+func TestHandleCreateFolder_PhotoProjectSOP(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+
+	body := FolderRequest{
+		BasePath:      tmpDir,
+		FolderName:    "2026.07.20_city_walk",
+		Subject:       "City Walk",
+		Date:          "2026-07-20",
+		Source:        "manual",
+		SOPTemplateID: photoProjectSOPTemplateID,
+	}
+
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	folderPath := filepath.Join(tmpDir, "2026.07.20_city_walk")
+	for _, path := range []string{
+		filepath.Join(folderPath, "00_Originals"),
+		filepath.Join(folderPath, "10_Masters"),
+		filepath.Join(folderPath, "20_Exports", "Web"),
+		filepath.Join(folderPath, "20_Exports", "Social"),
+		filepath.Join(folderPath, "20_Exports", "Print"),
+		filepath.Join(folderPath, "20_Exports", "Delivery"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected photo SOP path to exist: %s (%v)", path, err)
+		}
+	}
+
+	recordPath := filepath.Join(folderPath, workRecordFileName)
+	record, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"type: photo_project",
+		"sop_template_id: photo-project",
+		"ai_access: noai",
+		"contains_personal_media: true",
+		"Lightroom Classic",
+	} {
+		if !strings.Contains(string(record), expected) {
+			t.Fatalf("photo work record missing %q\n%s", expected, string(record))
+		}
+	}
+
+	parsed, err := readWorkRecord(recordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Info.RecordType != "photo_project" || parsed.Info.AIAccess != "noai" {
+		t.Fatalf("unexpected photo record metadata: %+v", parsed.Info)
+	}
+	if !isAIRestrictedFolderPath(folderPath) {
+		t.Fatal("expected photo project to be excluded from AI by work-record policy")
+	}
+}
+
+func TestHandleCreateFolder_PhotoProjectRejectsEmailSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	router := SetupRoutes()
+	body := FolderRequest{
+		BasePath:      tmpDir,
+		FolderName:    "photo-from-email",
+		Subject:       "Photo",
+		Source:        "email",
+		MailID:        "mail-1",
+		SOPTemplateID: photoProjectSOPTemplateID,
+	}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/folder/create", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "photo-from-email")); !os.IsNotExist(err) {
+		t.Fatal("photo folder should not be created for email source")
+	}
+}
+
+func TestHandleListSOPTemplates_SeedTemplatesHavePaths(t *testing.T) {
+	router := SetupRoutes()
+	req := httptest.NewRequest(http.MethodGet, "/api/sop/templates", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Templates []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"templates"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+
+	foundDefault := false
+	foundLearning := false
+	foundPhoto := false
+	for _, tpl := range resp.Templates {
+		if tpl.ID == "default-task" {
+			foundDefault = true
+			if strings.TrimSpace(tpl.Path) == "" {
+				t.Fatalf("expected default-task to have a template folder path")
+			}
+		}
+		if tpl.ID == "learning-notes" {
+			foundLearning = true
+			if strings.TrimSpace(tpl.Path) == "" {
+				t.Fatalf("expected learning-notes to have a template folder path")
+			}
+		}
+		if tpl.ID == photoProjectSOPTemplateID {
+			foundPhoto = true
+			if strings.TrimSpace(tpl.Path) == "" {
+				t.Fatalf("expected photo-project to have a template folder path")
+			}
+		}
+	}
+	if !foundDefault || !foundLearning || !foundPhoto {
+		t.Fatalf("expected seeded templates, got %+v", resp.Templates)
 	}
 }
 
@@ -325,7 +700,7 @@ func TestBuildDailyReportInput_UsesCoreContent(t *testing.T) {
 	}
 }
 
-func TestHandleGenerateDailyReport_Fallback(t *testing.T) {
+func TestHandleGenerateDailyReport_RequiresAIConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	folderPath := filepath.Join(tmpDir, "2026.04.20_daily_task")
 	_ = os.MkdirAll(folderPath, 0o755)
@@ -363,24 +738,222 @@ content from actual work.`
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
+		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
+	}
+}
+
+func TestHandleGenerateDailyReport_RejectsSensitivePathBeforeAICall(t *testing.T) {
+	router := SetupRoutes()
+	reqBody := DailyReportGenerateRequest{
+		Date: "2026-04-20",
+		Items: []DailyReportItem{
+			{FolderPath: `C:\Workspace\10_Work\【敏感_NoAI】材料`},
+		},
+		AI: DailyReportAIConfig{
+			Enabled: true,
+			APIURL:  "https://example.com/v1",
+			APIKey:  "test-key",
+			Model:   "test-model",
+		},
+	}
+	raw, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/report/daily/generate", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleGenerateDailyReport_RejectsNoAIWorkRecordBeforeAICall(t *testing.T) {
+	tmpDir := t.TempDir()
+	folderPath := filepath.Join(tmpDir, "photo-project")
+	if err := os.MkdirAll(folderPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := "---\ntype: photo_project\ntitle: Private Photos\nai_access: noai\n---\n# Private Photos\n"
+	if err := os.WriteFile(filepath.Join(folderPath, workRecordFileName), []byte(record), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reqBody := DailyReportGenerateRequest{
+		Date:  "2026-07-20",
+		Items: []DailyReportItem{{FolderPath: folderPath}},
+		AI: DailyReportAIConfig{
+			Enabled: true,
+			APIURL:  "https://example.com/v1",
+			APIKey:  "test-key",
+			Model:   "test-model",
+		},
+	}
+	raw, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/report/daily/generate", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	SetupRoutes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleGenerateWeeklyReport_RequiresAIConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	inFolder := filepath.Join(tmpDir, "2026.05.11_weekly_task")
+	outFolder := filepath.Join(tmpDir, "2026.04.20_old_task")
+	_ = os.MkdirAll(inFolder, 0o755)
+	_ = os.MkdirAll(outFolder, 0o755)
+
+	inRecord := `---
+type: task
+schema_version: 3
+title: weekly-task
+status: archived
+created: 2026-05-11
+updated: 2026-05-15
+task_date: 2026-05-11
+source: manual
+department: ops
+archive_status: local_archive
+hash: weeklyhash
+---
+# weekly-task
+
+## 工作内容
+
+围绕 weekly-task 开展任务资料整理与输出准备工作。
+
+## 工作过程
+
+- 2026-05-11：完成样本数据提取代码编写。
+
+## 当前进展
+
+已完成样本库数据处理
+
+## 下一步
+
+归档`
+	outRecord := `---
+type: task
+schema_version: 3
+title: old-task
+status: active
+created: 2026-04-20
+updated: 2026-04-20
+task_date: 2026-04-20
+source: manual
+department: ops
+archive_status: local_active
+hash: oldhash
+---
+# old-task
+
+## 工作过程
+
+- 2026-04-20：旧任务。`
+	_ = os.WriteFile(filepath.Join(inFolder, workRecordFileName), []byte(inRecord), 0o644)
+	_ = os.WriteFile(filepath.Join(outFolder, workRecordFileName), []byte(outRecord), 0o644)
+
+	router := SetupRoutes()
+	reqBody := WeeklyReportGenerateRequest{
+		PeriodStart: "2026-05-11",
+		PeriodEnd:   "2026-05-17",
+		Items: []WeeklyReportItem{
+			{FolderPath: inFolder},
+			{FolderPath: outFolder},
+		},
+		AI: DailyReportAIConfig{Enabled: false},
+	}
+	raw, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/report/weekly/generate", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
+		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
+	}
+}
+
+func TestHandleScanWorkReport_IncludesOldTaskTouchedInPeriod(t *testing.T) {
+	tmpDir := t.TempDir()
+	taskDir := filepath.Join(tmpDir, "2026.04.20_old_refactor")
+	_ = os.MkdirAll(taskDir, 0o755)
+
+	workRecord := `---
+type: task
+schema_version: 3
+title: old-refactor
+status: active
+created: 2026-04-20
+updated: 2026-04-20
+task_date: 2026-04-20
+source: manual
+department: ops
+archive_status: local_active
+hash: oldhash
+---
+# old-refactor
+
+## 工作过程
+
+- 2026-04-20：历史任务记录。`
+	workRecordPath := filepath.Join(taskDir, workRecordFileName)
+	_ = os.WriteFile(workRecordPath, []byte(workRecord), 0o644)
+	touchedAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.Local)
+	if err := os.Chtimes(workRecordPath, touchedAt, touchedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	router := SetupRoutes()
+	body, _ := json.Marshal(WorkReportScanRequest{
+		PeriodStart: "2026-07-01",
+		PeriodEnd:   "2026-07-07",
+		ScanPaths:   []string{tmpDir},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/report/work/scan", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d, body=%s", rr.Code, rr.Body.String())
 	}
 
 	var resp struct {
-		Success bool `json:"success"`
-		Logs    []struct {
-			Content string `json:"content"`
-		} `json:"logs"`
+		Count int `json:"count"`
+		Items []struct {
+			FolderPath   string   `json:"folder_path"`
+			MatchReasons []string `json:"match_reasons"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
-	if !resp.Success || len(resp.Logs) != 1 {
-		t.Fatalf("unexpected response: %+v", resp)
+	if resp.Count != 1 || len(resp.Items) != 1 {
+		t.Fatalf("expected touched old task to be included, got count=%d body=%s", resp.Count, rr.Body.String())
 	}
-	if strings.TrimSpace(resp.Logs[0].Content) == "" {
-		t.Fatalf("expected non-empty fallback daily log")
+	if normalizePathKey(resp.Items[0].FolderPath) != normalizePathKey(taskDir) {
+		t.Fatalf("expected %s, got %s", taskDir, resp.Items[0].FolderPath)
+	}
+	foundReason := false
+	for _, reason := range resp.Items[0].MatchReasons {
+		if reason == "工作记录文件最近修改" {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("expected filesystem match reason, got %+v", resp.Items[0].MatchReasons)
 	}
 }
 
@@ -451,5 +1024,153 @@ hash: childhash
 	gotPath := folders[0]["path"].(string)
 	if normalizePathKey(gotPath) != normalizePathKey(parent) {
 		t.Fatalf("expected %s, got %s", parent, gotPath)
+	}
+}
+
+func TestCollectScannedFolders_SkipsSensitivePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	regular := filepath.Join(tmpDir, "2026.04.22_regular")
+	sensitive := filepath.Join(tmpDir, "2026.04.22_【敏感_NoAI】private")
+	writeMinimalTaskRecord(t, regular)
+	writeMinimalTaskRecord(t, sensitive)
+
+	folders, err := collectScannedFolders(tmpDir, true)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(folders) != 1 {
+		t.Fatalf("expected only the non-sensitive task, got %d", len(folders))
+	}
+	if got := folders[0]["path"].(string); normalizePathKey(got) != normalizePathKey(regular) {
+		t.Fatalf("expected %s, got %s", regular, got)
+	}
+}
+
+func TestIsSensitivePath_MatchesWorkspacePolicyMarkers(t *testing.T) {
+	for _, path := range []string{
+		`C:\Workspace\10_Work\【敏感_NoAI】材料`,
+		`C:\Workspace\10_Work\Private\任务`,
+		`C:\Workspace\10_Work\人员名单`,
+		`C:\Workspace\10_Work\个人信息表`,
+	} {
+		if !isSensitivePath(path) {
+			t.Fatalf("expected sensitive path: %s", path)
+		}
+	}
+	if isSensitivePath(`C:\Workspace\10_Work\2026.04.22_regular`) {
+		t.Fatal("expected regular task path to remain readable")
+	}
+}
+
+func TestCollectArchiveSearchCandidates_RanksLocalMatches(t *testing.T) {
+	tmpDir := t.TempDir()
+	sampleDir := filepath.Join(tmpDir, "2026.05.11_sample_data")
+	otherDir := filepath.Join(tmpDir, "2026.05.12_other")
+	_ = os.MkdirAll(sampleDir, 0o755)
+	_ = os.MkdirAll(otherDir, 0o755)
+
+	sampleRecord := `---
+type: task
+schema_version: 3
+title: 样本库数据处理
+status: archived
+created: 2026-05-11
+updated: 2026-05-15
+task_date: 2026-05-11
+source: manual
+department: 科数部
+archive_status: local_archive
+hash: samplehash
+---
+# 样本库数据处理
+
+完成样本数据提取代码编写，完成样本库数据处理。`
+	otherRecord := `---
+type: task
+schema_version: 3
+title: 会议材料整理
+status: archived
+created: 2026-05-12
+updated: 2026-05-12
+task_date: 2026-05-12
+source: manual
+department: 综合部
+archive_status: local_archive
+hash: otherhash
+---
+# 会议材料整理
+
+整理会议议程。`
+	_ = os.WriteFile(filepath.Join(sampleDir, workRecordFileName), []byte(sampleRecord), 0o644)
+	_ = os.WriteFile(filepath.Join(otherDir, workRecordFileName), []byte(otherRecord), 0o644)
+
+	candidates, err := collectArchiveSearchCandidates("样本库 数据处理", []string{tmpDir}, 10)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(candidates) == 0 {
+		t.Fatalf("expected candidates")
+	}
+	if normalizePathKey(candidates[0].Path) != normalizePathKey(sampleDir) {
+		t.Fatalf("expected sample dir first, got %+v", candidates[0])
+	}
+	if candidates[0].Score <= 0 {
+		t.Fatalf("expected positive score, got %d", candidates[0].Score)
+	}
+}
+
+func TestCollectArchiveSearchCandidates_SkipsNoAIWorkRecords(t *testing.T) {
+	tmpDir := t.TempDir()
+	folderPath := filepath.Join(tmpDir, "2026.07.20_photo")
+	if err := os.MkdirAll(folderPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := `---
+type: photo_project
+title: 城市照片
+task_date: 2026-07-20
+ai_access: noai
+---
+# 城市照片
+
+## 当前进展
+
+已完成选片。
+`
+	if err := os.WriteFile(filepath.Join(folderPath, workRecordFileName), []byte(record), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := collectArchiveSearchCandidates("城市照片", []string{tmpDir}, 10)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected NoAI photo project to be excluded, got %+v", candidates)
+	}
+}
+
+func TestHandleArchiveAISearch_RequiresAIConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	taskDir := filepath.Join(tmpDir, "2026.05.11_sample_data")
+	_ = os.MkdirAll(taskDir, 0o755)
+	_ = os.WriteFile(filepath.Join(taskDir, workRecordFileName), []byte(`# 样本库数据处理`), 0o644)
+
+	router := SetupRoutes()
+	body, _ := json.Marshal(ArchiveAISearchRequest{
+		Query:        "样本库",
+		ArchivePaths: []string{tmpDir},
+		AI:           DailyReportAIConfig{Enabled: false},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/archive/ai-search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "AI report generation is required") {
+		t.Fatalf("expected AI required error, got body=%s", rr.Body.String())
 	}
 }

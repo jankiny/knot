@@ -1,0 +1,137 @@
+.work-report {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.work-report-card {
+  border-radius: 8px;
+}
+
+.work-report-form {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.5fr) auto auto auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.work-report-field {
+  min-width: 0;
+}
+
+.work-report-label {
+  margin-bottom: 6px;
+  color: #595959;
+  font-size: 13px;
+}
+
+.work-report-directory-field .ant-select {
+  width: 100%;
+}
+
+.work-report-directory-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.work-report-directory-option .ant-typography {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.work-report-result-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.work-report-task-list .ant-list-item {
+  align-items: flex-start;
+  padding: 12px 0;
+}
+
+.work-report-task {
+  min-width: 0;
+  width: 100%;
+}
+
+.work-report-task-title {
+  font-weight: 500;
+  color: #262626;
+}
+
+.work-report-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.work-report-task-path {
+  margin-top: 6px;
+  color: #8c8c8c;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.work-report-summary {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.work-report-summary-title {
+  margin-bottom: 6px;
+  color: #262626;
+  font-weight: 600;
+}
+
+.work-report-summary-text {
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.work-report-markdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1100px) {
+  .work-report-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .work-report-directory-field {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .work-report-form {
+    grid-template-columns: 1fr;
+  }
+
+  .work-report-actions,
+  .work-report-result-header,
+  .work-report-markdown-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

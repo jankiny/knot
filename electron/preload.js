@@ -10,6 +10,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 获取版本号
   version: appVersion,
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  getUpdateStatus: () => ipcRenderer.invoke('update-get-status'),
+  checkForUpdates: () => ipcRenderer.invoke('update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('update-download'),
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+  onUpdateStatus: (callback) => {
+    const listener = (event, status) => callback(status)
+    ipcRenderer.on('update-status', listener)
+    return () => ipcRenderer.removeListener('update-status', listener)
+  },
+  removeUpdateStatusListener: (unsubscribe) => {
+    if (typeof unsubscribe === 'function') {
+      unsubscribe()
+    }
+  },
 
   // 获取桌面路径
   getDesktopPath: () => {
@@ -45,12 +60,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 监听窗口最大化状态变化
   onMaximizedStateChange: (callback) => {
-    ipcRenderer.on('window-maximized-state', (event, isMaximized) => callback(isMaximized))
+    const listener = (event, isMaximized) => callback(isMaximized)
+    ipcRenderer.on('window-maximized-state', listener)
+    return () => ipcRenderer.removeListener('window-maximized-state', listener)
   },
 
   // 移除事件监听
-  removeMaximizedStateListener: () => {
-    ipcRenderer.removeAllListeners('window-maximized-state')
+  removeMaximizedStateListener: (unsubscribe) => {
+    if (typeof unsubscribe === 'function') {
+      unsubscribe()
+    }
   },
 
   // 保存设置到系统级文件

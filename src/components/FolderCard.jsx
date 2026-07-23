@@ -20,11 +20,11 @@ const LEGACY_TITLE_SET = new Set([
 ])
 
 const UNKNOWN_LABEL = '\u672a\u77e5'
-const UNSET_DEPARTMENT_LABEL = '\u672a\u6307\u5b9a\u90e8\u95e8'
+const UNSET_TARGET_LABEL = '\u672a\u6307\u5b9a\u5f52\u5c5e'
 const BTN_RECORD = '\u8bb0\u5f55'
 const BTN_ARCHIVE = '\u5f52\u6863'
 const OPEN_FOLDER_PREFIX = '\u6253\u5f00\u6587\u4ef6\u5939\uff1a'
-const EDIT_DEPT_TIP = '\u70b9\u51fb\u7f16\u8f91\u6240\u5c5e\u90e8\u95e8'
+const EDIT_TARGET_TIP = '\u70b9\u51fb\u7f16\u8f91\u5f52\u5c5e'
 const FILE_UNIT = '\u4e2a\u6587\u4ef6'
 
 export function getDisplayTitle(folder) {
@@ -40,10 +40,13 @@ function getSourceLabel(source) {
   return SOURCE_LABEL_MAP[key] || source || UNKNOWN_LABEL
 }
 
-function FolderCard({ folder, onArchive, onEditDept, onViewContent, onOpenFolder }) {
+function FolderCard({ folder, onArchive, onEditDept, onViewContent, onOpenFolder, archiveLabel = BTN_ARCHIVE, archiveIcon = <SendOutlined />, archiveDisabled, archiveLoading = false }) {
   const title = getDisplayTitle(folder)
   const hasDept = Boolean(folder?.department && folder.department.trim())
-  const departmentLabel = hasDept ? folder.department : UNSET_DEPARTMENT_LABEL
+  const hasProject = Boolean(folder?.project && folder.project.trim())
+  const hasArchiveTarget = hasProject || hasDept
+  const targetLabel = hasProject ? folder.project : (hasDept ? folder.department : UNSET_TARGET_LABEL)
+  const displayTime = folder.task_date || folder.create_time
 
   return (
     <Card className="folder-card" size="small">
@@ -71,26 +74,27 @@ function FolderCard({ folder, onArchive, onEditDept, onViewContent, onOpenFolder
               <Button
                 size="small"
                 type="primary"
-                icon={<SendOutlined />}
+                icon={archiveIcon}
                 onClick={() => onArchive(folder)}
-                disabled={!hasDept}
+                disabled={archiveDisabled !== undefined ? archiveDisabled : !hasArchiveTarget}
+                loading={archiveLoading}
               >
-                {BTN_ARCHIVE}
+                {archiveLabel}
               </Button>
             </Space>
           </div>
         </div>
 
         <div className="folder-row folder-row-meta">
-          {folder.create_time && <Tag icon={<ClockCircleOutlined />}>{folder.create_time}</Tag>}
+          {displayTime && <Tag icon={<ClockCircleOutlined />}>{displayTime}</Tag>}
           {folder.source && <Tag color="blue">{getSourceLabel(folder.source)}</Tag>}
-          <Tooltip title={EDIT_DEPT_TIP}>
+          <Tooltip title={EDIT_TARGET_TIP}>
             <Tag
-              color={hasDept ? 'green' : 'default'}
+              color={hasArchiveTarget ? 'green' : 'default'}
               className="folder-department-tag"
               onClick={() => onEditDept(folder)}
             >
-              {departmentLabel}
+              {targetLabel}
             </Tag>
           </Tooltip>
           {Number(folder.file_count) > 0 && (

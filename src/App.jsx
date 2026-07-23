@@ -4,8 +4,10 @@ import {
   BlockOutlined,
   BorderOutlined,
   CloseOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  InboxOutlined,
   InfoCircleOutlined,
   MailOutlined,
   MenuFoldOutlined,
@@ -16,11 +18,13 @@ import {
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import About from './components/About'
+import ArchiveAiSearch from './components/ArchiveAiSearch'
 import AutoArchive from './components/AutoArchive'
-import DailyReport from './components/DailyReport'
+import ArchiveManager from './components/ArchiveManager'
 import MailList from './components/MailList'
 import QuickCreate from './components/QuickCreate'
 import Settings from './components/Settings'
+import WorkReport from './components/WorkReport'
 import { USE_MOCK } from './services/api'
 import { getSettings } from './services/settings'
 import './App.css'
@@ -38,6 +42,7 @@ function App() {
   } = theme.useToken()
 
   const isIntegratedStyle = settings.windowStyle === 'integrated'
+  const appTitle = settings.appTitleLanguage === 'zh' ? '绳结' : 'Knot'
 
   useEffect(() => {
     const handleOpenSettings = () => setActiveKey('settings')
@@ -54,15 +59,21 @@ function App() {
     if (!window.electronAPI) return undefined
 
     window.electronAPI.isWindowMaximized().then((status) => setIsMaximized(status))
-    window.electronAPI.onMaximizedStateChange((isMax) => setIsMaximized(isMax))
-    return () => window.electronAPI.removeMaximizedStateListener()
+    const unsubscribe = window.electronAPI.onMaximizedStateChange((isMax) => setIsMaximized(isMax))
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe()
+      }
+    }
   }, [])
 
   const menuItems = [
     { key: 'mail', icon: <MailOutlined />, label: '邮件列表' },
     { key: 'quick', icon: <PlusSquareOutlined />, label: '快速创建' },
-    { key: 'archive', icon: <FolderOpenOutlined />, label: '自动归档' },
-    { key: 'daily', icon: <FileTextOutlined />, label: '日报生成' }
+    { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
+    { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
+    { key: 'archive-ai-search', icon: <FileSearchOutlined />, label: '资料检索' },
+    { key: 'work-report', icon: <FileTextOutlined />, label: '工作报告' }
   ]
 
   const renderContent = () => {
@@ -73,12 +84,16 @@ function App() {
         return <QuickCreate />
       case 'archive':
         return <AutoArchive />
-      case 'daily':
-        return <DailyReport />
+      case 'archive-manager':
+        return <ArchiveManager />
+      case 'archive-ai-search':
+        return <ArchiveAiSearch />
+      case 'work-report':
+        return <WorkReport />
       case 'about':
-        return <About />
+        return <About appTitle={appTitle} developerMode={settings.developerMode === true} />
       case 'settings':
-        return <Settings />
+        return <Settings onSettingsChange={setSettings} />
       default:
         return <MailList />
     }
@@ -91,15 +106,19 @@ function App() {
       case 'quick':
         return '快速创建'
       case 'archive':
-        return '自动归档'
-      case 'daily':
-        return '日报生成'
+        return '当前工作'
+      case 'archive-manager':
+        return '归档管理'
+      case 'archive-ai-search':
+        return '资料检索'
+      case 'work-report':
+        return '工作报告'
       case 'about':
         return '关于'
       case 'settings':
         return '设置'
       default:
-        return 'Knot 绳结'
+        return 'Knot'
     }
   }
 
@@ -108,7 +127,7 @@ function App() {
       <Layout className="app-layout">
         <Sider trigger={null} collapsible collapsed={collapsed} theme="light" className="app-sider">
           <div className="logo-container">
-            <div className="logo-text">{collapsed ? 'Knot' : 'Knot 绳结'}</div>
+            <div className="logo-text">{appTitle}</div>
           </div>
           <Menu
             theme="light"
