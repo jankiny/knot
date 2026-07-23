@@ -112,7 +112,7 @@
 }
 
 .mode-status {
-  padding: 12px;
+  padding: 12px 14px;
   background: #fafafa;
   border-radius: 8px;
 }
@@ -121,6 +121,82 @@
   margin: 8px 0 0 0;
   font-size: 12px;
   color: #999;
+}
+
+.general-settings-list {
+  border-top: 1px solid #edf0f3;
+}
+
+.general-setting-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  padding: 18px 0;
+  border-bottom: 1px solid #edf0f3;
+}
+
+.general-setting-heading {
+  min-width: 0;
+}
+
+.general-setting-heading h3 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.general-setting-heading .setting-hint {
+  max-width: 430px;
+  margin-top: 8px;
+  line-height: 1.6;
+}
+
+.general-setting-control {
+  min-width: 0;
+}
+
+.general-setting-control-end {
+  justify-self: end;
+}
+
+.general-setting-control .ant-radio-group {
+  display: flex;
+  max-width: 100%;
+}
+
+.general-setting-control .ant-radio-button-wrapper {
+  text-align: center;
+}
+
+.window-style-control {
+  width: min(100%, 240px);
+}
+
+.title-language-control {
+  width: min(100%, 284px);
+}
+
+.window-style-control .ant-radio-button-wrapper,
+.title-language-control .ant-radio-button-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.title-language-control .ant-radio-button-wrapper {
+  padding-inline: 8px;
+  font-size: 13px;
+}
+
+.general-setting-control.mode-status {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.general-preview-update {
+  max-width: 284px;
+  margin-bottom: 0;
 }
 
 .custom-model-list {

@@ -54,7 +54,7 @@ const formatVersion = (version) => {
   return text.startsWith('v') ? text : `v${text}`
 }
 
-function About() {
+function About({ appTitle = 'Knot', developerMode = false }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [updateDetailsOpen, setUpdateDetailsOpen] = useState(false)
   const [updateStatus, setUpdateStatus] = useState({
@@ -150,13 +150,13 @@ function About() {
           <img
             className="about-logo"
             src={appIcon}
-            alt="Knot"
+            alt={appTitle}
             onError={(event) => {
               event.currentTarget.style.display = 'none'
             }}
           />
           <div className="about-brand-copy">
-            <h1>Knot</h1>
+            <h1>{appTitle}</h1>
             <Text type="secondary" className="about-version">
               当前版本 {currentVersion}
             </Text>
@@ -205,26 +205,30 @@ function About() {
               检查更新
             </Button>
 
-            <div className="about-update-primary-action">
-              {updateStatus.status === 'downloaded' ? (
+            {updateStatus.status === 'downloaded' ? (
+              <div className="about-update-primary-action">
                 <Button type="primary" onClick={handleInstallUpdate} block>
                   重启并安装
                 </Button>
-              ) : requiresManualUpdate(updateStatus.status) ? (
+              </div>
+            ) : requiresManualUpdate(updateStatus.status) ? (
+              <div className="about-update-primary-action">
                 <Button icon={<DownloadOutlined />} onClick={handleManualDownload} block>
                   打开发布页
                 </Button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
 
-            <Button
-              icon={<InfoCircleOutlined />}
-              onClick={() => setUpdateDetailsOpen(true)}
-              disabled={!hasUpdateDetails}
-              className="about-update-details-button"
-            >
-              更新详情
-            </Button>
+            {developerMode ? (
+              <Button
+                icon={<InfoCircleOutlined />}
+                onClick={() => setUpdateDetailsOpen(true)}
+                disabled={!hasUpdateDetails}
+                className="about-update-details-button"
+              >
+                更新详情
+              </Button>
+            ) : null}
           </div>
         </section>
 
@@ -245,7 +249,8 @@ function About() {
 
       <Modal
         title="更新详情"
-        open={updateDetailsOpen}
+        open={developerMode && updateDetailsOpen}
+        centered
         onCancel={() => setUpdateDetailsOpen(false)}
         footer={[
           updateStatus.status === 'downloaded' ? (
@@ -287,7 +292,7 @@ function About() {
             <Progress percent={progressPercent} />
           ) : null}
 
-          {hasDiagnostics ? (
+          {developerMode && hasDiagnostics ? (
             <div className="about-update-diagnostics">
               <div className="about-update-diagnostics-title">更新诊断信息</div>
               <pre>{JSON.stringify(updateStatus.diagnostics, null, 2)}</pre>

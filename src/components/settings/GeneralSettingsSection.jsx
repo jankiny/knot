@@ -37,56 +37,103 @@ function GeneralSettingsSection({ settings, onSettingsChange }) {
     }
   }
 
+  const handleTitleLanguageChange = (event) => {
+    updateSetting('appTitleLanguage', event.target.value)
+  }
+
   return (
     <div id="general-settings" className="settings-block">
       <h2>常规设置</h2>
-      <div className="settings-section">
-        <div className="section-header">
-          <h3>运行模式</h3>
-        </div>
-        <div className="mode-status">
-          {USE_MOCK ? (
-            <Tag color="orange">Mock 模式（外网开发）</Tag>
-          ) : (
-            <Tag color="green">已连接邮件服务器</Tag>
-          )}
-          <p className="mode-hint">
-            {USE_MOCK
-              ? 'Mock 模式下使用模拟邮件数据，但文件夹创建为真实操作'
-              : '当前连接真实邮件服务器'}
-          </p>
-        </div>
-      </div>
 
-      <div className="settings-section" style={{ marginTop: 24 }}>
-        <div className="section-header">
-          <h3>窗口样式</h3>
+      <div className="general-settings-list">
+        <div className="general-setting-row">
+          <div className="general-setting-heading">
+            <h3>运行模式</h3>
+          </div>
+          <div className="general-setting-control mode-status">
+            {USE_MOCK ? (
+              <Tag color="orange">Mock 模式（外网开发）</Tag>
+            ) : (
+              <Tag color="green">已连接邮件服务器</Tag>
+            )}
+            <p className="mode-hint">
+              {USE_MOCK
+                ? 'Mock 模式下使用模拟邮件数据，但文件夹创建为真实操作'
+                : '当前连接真实邮件服务器'}
+            </p>
+          </div>
         </div>
-        <Radio.Group
-          onChange={handleWindowStyleChange}
-          value={settings.windowStyle}
-          optionType="button"
-          buttonStyle="solid"
-        >
-          <Radio.Button value="integrated" style={{ width: 120, textAlign: 'center' }}>一体化</Radio.Button>
-          <Radio.Button value="classic" style={{ width: 120, textAlign: 'center' }}>经典</Radio.Button>
-        </Radio.Group>
-      </div>
 
-      <div className="settings-section" style={{ marginTop: 24 }}>
-        <div className="section-header">
-          <h3>更新通道</h3>
+        <div className="general-setting-row">
+          <div className="general-setting-heading">
+            <h3>窗口样式</h3>
+          </div>
+          <div className="general-setting-control">
+            <Radio.Group
+              className="window-style-control"
+              onChange={handleWindowStyleChange}
+              value={settings.windowStyle}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="integrated">一体化</Radio.Button>
+              <Radio.Button value="classic">经典</Radio.Button>
+            </Radio.Group>
+          </div>
         </div>
-        <div className="setting-item inline">
-          <label>启用预览版更新</label>
-          <Switch
-            checked={!!settings.enablePreviewUpdates}
-            onChange={handlePreviewUpdatesChange}
-          />
+
+        <div className="general-setting-row">
+          <div className="general-setting-heading">
+            <h3>标题显示</h3>
+          </div>
+          <div className="general-setting-control">
+            <Radio.Group
+              className="title-language-control"
+              onChange={handleTitleLanguageChange}
+              value={settings.appTitleLanguage}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="zh">中文（绳结）</Radio.Button>
+              <Radio.Button value="en">English（Knot）</Radio.Button>
+            </Radio.Group>
+            <p className="setting-hint">切换侧边栏与关于页的应用标题。</p>
+          </div>
         </div>
-        <p className="setting-hint">
-          关闭时只跟踪正式版；开启后会允许检查 alpha/preview 预览版。
-        </p>
+
+        <div className="general-setting-row">
+          <div className="general-setting-heading">
+            <h3>开发者模式</h3>
+            <p className="setting-hint">
+              开启后在关于页提供更新详情，并显示仅用于问题排查的诊断信息。
+            </p>
+          </div>
+          <div className="general-setting-control general-setting-control-end">
+            <Switch
+              checked={!!settings.developerMode}
+              onChange={(checked) => updateSetting('developerMode', checked)}
+              aria-label="开发者模式"
+            />
+          </div>
+        </div>
+
+        <div className="general-setting-row">
+          <div className="general-setting-heading">
+            <h3>更新通道</h3>
+          </div>
+          <div className="general-setting-control">
+            <div className="setting-item inline general-preview-update">
+              <label>启用预览版更新</label>
+              <Switch
+                checked={!!settings.enablePreviewUpdates}
+                onChange={handlePreviewUpdatesChange}
+              />
+            </div>
+            <p className="setting-hint">
+              关闭时只跟踪正式版；开启后会允许检查 alpha/preview 预览版。
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )

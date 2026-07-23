@@ -42,6 +42,7 @@ function App() {
   } = theme.useToken()
 
   const isIntegratedStyle = settings.windowStyle === 'integrated'
+  const appTitle = settings.appTitleLanguage === 'zh' ? '绳结' : 'Knot'
 
   useEffect(() => {
     const handleOpenSettings = () => setActiveKey('settings')
@@ -90,9 +91,9 @@ function App() {
       case 'work-report':
         return <WorkReport />
       case 'about':
-        return <About />
+        return <About appTitle={appTitle} developerMode={settings.developerMode === true} />
       case 'settings':
-        return <Settings />
+        return <Settings onSettingsChange={setSettings} />
       default:
         return <MailList />
     }
@@ -126,7 +127,7 @@ function App() {
       <Layout className="app-layout">
         <Sider trigger={null} collapsible collapsed={collapsed} theme="light" className="app-sider">
           <div className="logo-container">
-            <div className="logo-text">Knot</div>
+            <div className="logo-text">{appTitle}</div>
           </div>
           <Menu
             theme="light"

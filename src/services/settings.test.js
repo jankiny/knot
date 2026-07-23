@@ -65,3 +65,24 @@ describe('AI model settings', () => {
     })
   })
 })
+
+describe('appearance settings', () => {
+  it('uses the English title and hides developer tools by default', () => {
+    expect(getSettings()).toMatchObject({
+      appTitleLanguage: 'en',
+      developerMode: false
+    })
+  })
+
+  it('restores the selected title language and developer mode', () => {
+    localStorage.setItem('knot_settings', JSON.stringify({
+      appTitleLanguage: 'zh',
+      developerMode: true
+    }))
+
+    expect(getSettings()).toMatchObject({
+      appTitleLanguage: 'zh',
+      developerMode: true
+    })
+  })
+})

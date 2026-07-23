@@ -4,13 +4,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
+  padding: 0 10px;
   overflow: hidden;
 }
 
 .about-panel {
   width: 100%;
-  max-width: 560px;
+  max-width: 680px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -19,13 +19,14 @@
 
 .about-brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 0;
 }
 
 .about-brand-copy {
-  text-align: left;
+  text-align: center;
 }
 
 .about-logo {
@@ -36,26 +37,27 @@
 }
 
 .about-panel h1 {
-  margin: 0;
+  margin: 8px 0 0;
   color: #111827;
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 700;
   line-height: 1.1;
 }
 
 .about-version {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 14px;
 }
 
 .about-update-card {
   width: 100%;
-  margin-top: 16px;
-  padding: 14px;
-  border: 1px solid #edf0f3;
-  border-radius: 12px;
-  background: #fafbfc;
+  margin-top: 14px;
+  padding: 13px 16px;
+  border: 1px solid #e5eaf0;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.03);
 }
 
 .about-update-details {
@@ -72,7 +74,7 @@
   min-width: 0;
   padding: 0 14px;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .about-update-details > div + div {
@@ -83,9 +85,9 @@
   display: block;
   width: 100%;
   overflow: hidden;
-  color: #262626;
-  font-size: 13px;
-  font-weight: 600;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 650;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -93,17 +95,18 @@
 
 .about-update-feedback {
   width: 100%;
-  height: 34px;
-  margin-top: 12px;
+  height: 38px;
+  margin-top: 10px;
   padding: 0 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 7px;
-  background: #f0f3f7;
+  border: 1px solid #edf0f3;
+  border-radius: 8px;
+  background: #f8fafc;
   color: #667085;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
 }
 
@@ -135,14 +138,17 @@
 }
 
 .about-update-controls {
-  display: grid;
-  grid-template-columns: 150px 132px 116px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 10px;
   justify-content: center;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .about-update-button {
+  width: 150px;
   box-shadow: 0 6px 14px rgba(22, 119, 255, 0.2);
 }
 
@@ -151,25 +157,30 @@
   height: 32px;
 }
 
+.about-update-details-button {
+  width: 116px;
+}
+
 .about-actions {
   margin-top: 14px;
 }
 
 .about-actions .ant-btn {
-  background: #f7f8fa;
-  border-color: #edf0f3;
+  min-width: 118px;
+  background: #fff;
+  border-color: #e1e6ed;
   color: #374151;
 }
 
 .about-copyright {
-  margin-top: 18px;
+  margin-top: 14px;
   color: #8c8c8c;
   font-size: 13px;
 }
 
 .about-update-modal {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .about-update-modal-summary {
@@ -224,7 +235,7 @@
 }
 
 .about-update-diagnostics pre {
-  max-height: 220px;
+  max-height: min(180px, 25vh);
   margin: 0;
   padding: 10px;
   overflow: auto;
@@ -246,16 +257,26 @@
 }
 
 @media (max-height: 650px) {
+  .about-logo {
+    width: 60px;
+    height: 60px;
+  }
+
+  .about-panel h1 {
+    margin-top: 6px;
+    font-size: 29px;
+  }
+
   .about-update-card {
-    margin-top: 12px;
+    margin-top: 10px;
     padding: 12px 14px;
   }
 
   .about-actions {
-    margin-top: 12px;
+    margin-top: 10px;
   }
 
   .about-copyright {
-    margin-top: 14px;
+    margin-top: 10px;
   }
 }

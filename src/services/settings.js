@@ -13,6 +13,10 @@ const SETTINGS_KEY = 'knot_settings'
 const DEFAULT_SETTINGS = {
   // 窗口样式: 'integrated' (一体化) | 'classic' (经典)
   windowStyle: 'integrated',
+  // 应用标题语言: 'en' (Knot) | 'zh' (绳结)
+  appTitleLanguage: 'en',
+  // 开发者模式下可查看更新诊断信息
+  developerMode: false,
   folderPath: '~/Desktop',  // 默认桌面
   // 文件夹命名格式，支持变量：
   // {{YYYY}} - 年份，{{MM}} - 月份，{{DD}} - 日期
@@ -61,6 +65,8 @@ const DEFAULT_SETTINGS = {
 function normalizeSettings(settings) {
   return {
     ...settings,
+    appTitleLanguage: settings.appTitleLanguage === 'zh' ? 'zh' : 'en',
+    developerMode: settings.developerMode === true,
     ...normalizeAiSettings(settings)
   }
 }

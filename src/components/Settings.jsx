@@ -9,33 +9,38 @@ import MailSettingsSection from './settings/MailSettingsSection'
 import SopSettingsSection from './settings/SopSettingsSection'
 import './Settings.css'
 
-function Settings() {
+function Settings({ onSettingsChange }) {
   const [settings, setSettings] = useState(getSettings())
+
+  const handleSettingsChange = (nextSettings) => {
+    setSettings(nextSettings)
+    onSettingsChange?.(nextSettings)
+  }
 
   return (
     <div className="settings-container">
       <div className="settings-content">
-        <GeneralSettingsSection settings={settings} onSettingsChange={setSettings} />
+        <GeneralSettingsSection settings={settings} onSettingsChange={handleSettingsChange} />
 
         <Divider />
 
-        <MailSettingsSection settings={settings} onSettingsChange={setSettings} />
+        <MailSettingsSection settings={settings} onSettingsChange={handleSettingsChange} />
 
         <Divider />
 
-        <FolderSettingsSection settings={settings} onSettingsChange={setSettings} />
+        <FolderSettingsSection settings={settings} onSettingsChange={handleSettingsChange} />
 
         <Divider />
 
-        <SopSettingsSection settings={settings} onSettingsChange={setSettings} />
+        <SopSettingsSection settings={settings} onSettingsChange={handleSettingsChange} />
 
         <Divider />
 
-        <AiSettingsSection settings={settings} onSettingsChange={setSettings} />
+        <AiSettingsSection settings={settings} onSettingsChange={handleSettingsChange} />
 
         <Divider />
 
-        <ArchiveSettingsSection onSettingsChange={setSettings} />
+        <ArchiveSettingsSection onSettingsChange={handleSettingsChange} />
       </div>
 
       {/* 右侧导航 */}
