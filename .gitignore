@@ -54,6 +54,7 @@ Thumbs.db
 
 # Test coverage
 coverage/
+/data/_test_*/
 
 # Misc
 *.bak

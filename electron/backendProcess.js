@@ -2,6 +2,15 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
+const KNOT_DATA_DIR_ENV = 'KNOT_DATA_DIR'
+
+function buildBackendEnvironment(app, baseEnvironment = process.env) {
+  return {
+    ...baseEnvironment,
+    [KNOT_DATA_DIR_ENV]: app.getPath('userData')
+  }
+}
+
 function createBackendProcessManager({ app, appDir }) {
   let backendProcess = null
 
@@ -59,6 +68,7 @@ function createBackendProcessManager({ app, appDir }) {
     }
 
     backendProcess = spawn(backendPath, [], {
+      env: buildBackendEnvironment(app),
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
@@ -95,5 +105,7 @@ function createBackendProcessManager({ app, appDir }) {
 }
 
 module.exports = {
+  KNOT_DATA_DIR_ENV,
+  buildBackendEnvironment,
   createBackendProcessManager
 }
