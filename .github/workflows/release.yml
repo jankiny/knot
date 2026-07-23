@@ -3,7 +3,7 @@
 # 版本号策略：
 # - dev 分支：产生 1.2.0-alpha 格式（预发布版）
 # - main 分支：产生 1.2.0 格式（正式版）
-# - 其中 1.2 为 package.json 中的主版本，补丁号按当前主版本已有 tag 独立递增
+# - 其中 1.2 为 package.json 中的主版本，补丁号在正式版与预发布版之间统一递增
 
 name: Release
 
@@ -69,14 +69,23 @@ jobs:
           else
             TAG_REGEX="^v${ESCAPED_BASE_VERSION}\.([0-9]+)$"
           fi
+          ALL_TAG_REGEX="^v${ESCAPED_BASE_VERSION}\.([0-9]+)(-alpha)?$"
 
           MAX_PATCH=-1
+          CHANNEL_MAX_PATCH=-1
           PREVIOUS_TAG=""
           while IFS= read -r TAG_NAME; do
-            if [[ "$TAG_NAME" =~ $TAG_REGEX ]]; then
+            if [[ "$TAG_NAME" =~ $ALL_TAG_REGEX ]]; then
               PATCH_NUMBER="${BASH_REMATCH[1]}"
               if [ "$PATCH_NUMBER" -gt "$MAX_PATCH" ]; then
                 MAX_PATCH="$PATCH_NUMBER"
+              fi
+            fi
+
+            if [[ "$TAG_NAME" =~ $TAG_REGEX ]]; then
+              PATCH_NUMBER="${BASH_REMATCH[1]}"
+              if [ "$PATCH_NUMBER" -gt "$CHANNEL_MAX_PATCH" ]; then
+                CHANNEL_MAX_PATCH="$PATCH_NUMBER"
                 PREVIOUS_TAG="$TAG_NAME"
               fi
             fi
