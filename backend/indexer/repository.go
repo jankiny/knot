@@ -43,6 +43,30 @@ func (repository *Repository) GetByPathKey(
 	return document, nil
 }
 
+func (repository *Repository) GetByID(
+	ctx context.Context,
+	documentID string,
+) (IndexedDocument, error) {
+	document, err := scanIndexedDocument(repository.db.QueryRowContext(ctx, `
+		SELECT
+			id, source_root_id, relative_path, relative_path_key,
+			document_type, title, task_date, modified_at, file_size,
+			project_id, content_hash, content_excerpt, index_status,
+			ai_access_effective, document_ai_access, policy_reasons,
+			adapter_name, adapter_version, last_error_code,
+			last_seen_scan_id, created_at, updated_at
+		FROM indexed_documents
+		WHERE id = ?
+	`, documentID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return IndexedDocument{}, ErrDocumentNotFound
+	}
+	if err != nil {
+		return IndexedDocument{}, fmt.Errorf("get indexed document by id: %w", err)
+	}
+	return document, nil
+}
+
 func (repository *Repository) ListBySource(
 	ctx context.Context,
 	sourceRootID string,

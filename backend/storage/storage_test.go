@@ -96,7 +96,7 @@ func TestMigrationFailureRollsBackSchemaChanges(t *testing.T) {
 	}
 }
 
-func TestMigrateUpgradesVersionOneDatabaseToIndexedDocuments(t *testing.T) {
+func TestMigrateUpgradesVersionOneDatabaseToCurrentSchema(t *testing.T) {
 	directory := repositoryTestDirectory(t, "storage_upgrade_v1")
 	databasePath := filepath.Join(directory.Path, DatabaseFileName)
 
@@ -124,8 +124,12 @@ func TestMigrateUpgradesVersionOneDatabaseToIndexedDocuments(t *testing.T) {
 	).Scan(&version); err != nil {
 		t.Fatalf("read upgraded schema version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("expected schema version 2, got %d", version)
+	if version != CurrentSchemaVersion {
+		t.Fatalf(
+			"expected schema version %d, got %d",
+			CurrentSchemaVersion,
+			version,
+		)
 	}
 
 	var indexCount int
@@ -143,6 +147,78 @@ func TestMigrateUpgradesVersionOneDatabaseToIndexedDocuments(t *testing.T) {
 	}
 	if indexCount != 3 {
 		t.Fatalf("expected 3 indexed document indexes, got %d", indexCount)
+	}
+
+	var contextTableCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'table'
+			AND name IN (
+				'context_manifests',
+				'context_manifest_documents'
+			)
+	`).Scan(&contextTableCount); err != nil {
+		t.Fatalf("inspect context manifest tables: %v", err)
+	}
+	if contextTableCount != 2 {
+		t.Fatalf("expected 2 context manifest tables, got %d", contextTableCount)
+	}
+}
+
+func TestMigrateUpgradesVersionTwoDatabaseToContextManifests(t *testing.T) {
+	directory := repositoryTestDirectory(t, "storage_upgrade_v2")
+	databasePath := filepath.Join(directory.Path, DatabaseFileName)
+
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := applyMigrations(
+		context.Background(),
+		db,
+		migrations[:2],
+		migrationFiles.ReadFile,
+	); err != nil {
+		t.Fatalf("create version two database: %v", err)
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("upgrade database: %v", err)
+	}
+
+	var version int
+	if err := db.QueryRow(
+		"SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+	).Scan(&version); err != nil {
+		t.Fatalf("read upgraded schema version: %v", err)
+	}
+	if version != CurrentSchemaVersion {
+		t.Fatalf(
+			"expected schema version %d, got %d",
+			CurrentSchemaVersion,
+			version,
+		)
+	}
+
+	var manifestIndexCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'index'
+			AND name IN (
+				'idx_context_manifests_expires_at',
+				'idx_context_manifest_documents_document'
+			)
+	`).Scan(&manifestIndexCount); err != nil {
+		t.Fatalf("inspect context manifest indexes: %v", err)
+	}
+	if manifestIndexCount != 2 {
+		t.Fatalf(
+			"expected 2 context manifest indexes, got %d",
+			manifestIndexCount,
+		)
 	}
 }
 

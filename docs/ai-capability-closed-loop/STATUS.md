@@ -5,9 +5,9 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 3 已完成，等待进入阶段 4
-- 最后完成阶段：阶段 3 - 本地增量索引与首批资料适配器
-- 当前 schema version：2
+- 当前阶段：阶段 4 已完成，等待进入阶段 5
+- 最后完成阶段：阶段 4 - 上下文自动发现与 Evidence Manifest
+- 当前 schema version：3
 - 当前里程碑：个人年度总结闭环
 
 ## 已确认的代码基线
@@ -349,10 +349,146 @@
 - 不要改动：migration 001/002、SourceRoot/权限枚举含义、严格策略优先级、敏感路径 AI deny、Windows 最终路径校验、legacy API 兼容范围、adapter 的有限读取边界。
 - 不要提前实施：年度总结生成、AI Gateway、DOCX/PDF 正文、embedding、通用 Tool Calls、watcher 或文件操作计划。
 
+## Stage 4 - 上下文自动发现与 Evidence Manifest
+
+- 状态：completed
+- 分支：`dev`
+- 提交 SHA：未提交（实现前基线：`18471be`）
+- 完成日期：2026-07-24
+
+### 已实现
+
+- 新增 `backend/contextmanifest`，首个 task profile 固定为 `personal_annual_summary`；discover 请求只接受任务类型、查询文本和明确的起止日期，不接受任何扫描路径或归档路径。
+- Context Resolver 只查询 `journal`、`current_work`、`active_work`、`work_archive` 四类登记资料源；停用资料源进入 `excluded`，离线/缺失/无本地读取权限的资料源进入 `unavailable_sources`，不会阻断其他资料源发现。
+- 候选只使用 `ready` 索引文档。每个候选都会重新调用 `safepath.Resolver.Resolve`，比较当前文件大小/mtime，并把工作记录显式权限覆盖与当前资料源/敏感路径策略重新合并；不信任索引缓存的 `ai_access_effective`。
+- `ai_access=none` 文档只进入本地排除说明；`ai_access=metadata` 可形成无正文的 EvidenceItem；`ai_access=content` 只使用阶段 3 已保存的受限片段，阶段 4 再裁剪至最多 800 rune。普通 Markdown/TXT/通用文件仍然只有元数据，不读取 DOCX/PDF 正文。
+- 候选排序稳定且可解释：先要求时间范围命中，再累计任务日期、资料类型、标题/项目关联、完成/推进/成果关键词和近期活动分数；最终按分数降序、日期降序、root ID、相对路径和 document ID 打破平局。
+- Evidence ID 根据 document ID、hash、mtime、当前有效 AI 权限和受限片段确定性生成；相同请求与相同索引产生相同 evidence 顺序和 ID。每次 discover 仍创建新的持久 manifest ID。
+- token 估算对 ASCII 使用约 4 字符/token、非 ASCII 使用约 1 rune/token，并加入请求/evidence 结构开销；默认预算 12,000、最多 100 条 evidence。低排序候选超过数量或预算时以 `token_budget` 进入排除说明。
+- discover 默认最多检查 20,000 个索引文档、返回 200 条排除明细（同时保留完整排除总数）、运行 30 秒；Evidence 正文最多 800 rune。所有限制均在本地执行。
+- manifest 默认有效 30 分钟并持久化所选文档快照。`GET` 会重新检查 TTL、索引状态/hash、文件大小/mtime、安全路径和当前策略；任何变化都会返回 `valid=false`、`requires_rediscovery=true` 和结构化失效原因。
+- 本阶段没有新增 AI 调用、生成年度总结、解析 DOCX/PDF 正文、embedding、通用工具循环、文件修改或前端个人总结页面。
+
+### 数据库与 migration
+
+- schema version：3。
+- migration：`backend/storage/migrations/003_context_manifests.sql`；未修改 migration 001/002。
+- 新增 `context_manifests`：保存 task type、query、明确时间范围、完整 manifest JSON、快照 hash、创建时间和过期时间。
+- 新增 `context_manifest_documents`：保存入选 document ID、root ID、相对路径、content hash、mtime、大小和发现时有效 AI 权限，用于读取 manifest 时重新校验。
+- 文档快照不对 `indexed_documents` 建外键：资料源/可重建索引被删除后 manifest 仍可读取并明确返回 `document_missing`，不会静默丢失失效依据。
+- 没有自动 down migration；恢复 schema 2 需退出 Knot 后恢复升级前数据库备份。删除 SQLite 仍可通过重新登记/扫描恢复原始文件索引，但历史 manifest 会丢失。
+
+### 公共接口
+
+- `POST /api/context/discover`：成功返回 `201`；请求契约为：
+
+```json
+{
+  "task_type": "personal_annual_summary",
+  "query": "根据过去一年工作资料生成约 1500 字个人工作总结大纲",
+  "period_start": "2025-07-24",
+  "period_end": "2026-07-24"
+}
+```
+
+- `GET /api/context/{id}`：读取持久 manifest 并执行当前有效性校验；未知 ID 返回 `404`，服务未初始化返回 `503`。
+- `ContextManifest` 公开字段包含：ID、任务/时间、无绝对路径的资料源摘要、EvidenceItem、排除明细与计数、不可用资料源、token 估算/预算、确认要求、有效性/重新发现状态和创建/过期时间。
+- `EvidenceItem` 公开字段包含：evidence/document/root ID、source type、标题、日期、项目名、受限 excerpt、入选 reason 和当前有效 AI 权限；metadata evidence 的 `excerpt` 固定为空字符串。
+- `indexer.Repository.GetByID` 与 `IndexedDocument.DocumentAIAccess()` 是阶段 4 新增的只读复用接口，分别用于 manifest 失效校验和重新应用文档级权限覆盖。
+
+### 示例 discover 响应
+
+```json
+{
+  "id": "context_xxx",
+  "task_type": "personal_annual_summary",
+  "period_start": "2025-07-24",
+  "period_end": "2026-07-24",
+  "sources": [
+    {
+      "source_root_id": "root_journal",
+      "name": "工作日志",
+      "kind": "journal",
+      "candidate_documents": 12,
+      "evidence_items": 8
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence_xxx",
+      "document_id": "doc_xxx",
+      "source_root_id": "root_journal",
+      "source_type": "journal_weekly",
+      "title": "2026.W03 工作周报",
+      "date": "2026-01-12",
+      "project": "",
+      "excerpt": "完成……推进……",
+      "reason": "时间范围匹配；使用文档任务日期；周报优先；包含完成、推进或成果表述；采用受限正文片段",
+      "ai_access_effective": "content"
+    }
+  ],
+  "excluded_count": 3,
+  "unavailable_sources": [],
+  "estimated_input_tokens": 1680,
+  "token_budget": 12000,
+  "requires_confirmation": true,
+  "status": "ready",
+  "valid": true,
+  "requires_rediscovery": false
+}
+```
+
+示例省略了部分始终存在的空数组、scope 和时间字段；生产响应不会包含 SourceRoot 绝对路径。
+
+### 关键决策
+
+- manifest 只保存入选文档快照；排除候选或随后新增文档不会改变既有 manifest，TTL 到期后通过重新 discover 刷新范围。入选文档的 hash/元数据/策略变化会立即使 manifest 失效。
+- discover 不自动触发 scan，避免一次预览请求隐式递归文件系统；索引不存在或文件元数据比索引新时返回零候选或 `index_outdated`，由调用方提示用户扫描后重试。
+- 当前没有项目级独立策略表；有效策略严格复用阶段 2 已有的资料源、敏感路径和工作记录显式覆盖语义。未新增第二套路径标记或权限枚举。
+- API 对未知 JSON 字段 fail closed，因此 `scan_paths`、`archive_paths`、绝对路径或未来未声明字段都会返回 `400`。
+- 契约与 ROADMAP 的安全边界和公共语义一致，无需 ADR。
+
+### 测试
+
+- `pnpm test -- --run`：通过，6 个测试文件、17 项测试。
+- `pnpm run build`：通过；保留 Vite CJS Node API 弃用警告和既有大 chunk 警告。
+- `$env:TEMP/TMP=<repo>/data/_test_stage4_runtime; conda run -n go go test ./...`：通过，全部 Go 包通过。
+- `conda run -n go go test ./contextmanifest ./storage ./api`：通过；覆盖稳定排序、NoAI、metadata、离线缺口、预算、索引过期、hash/策略/TTL 失效、API 无路径契约和 v2 → v3 migration。
+- `conda run -n go go vet ./...`：通过。
+- `conda run -n go go build -buildvcs=false ./...`：通过。
+- `pnpm run backend:build:win`：通过。
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false`：通过，临时产物写入已忽略目录。
+- `node --check electron/main.js`：通过。
+- `node --check electron/preload.js`：通过。
+- `node --check electron/backendProcess.js`：通过。
+- `go mod tidy -diff`：无差异。
+- 本阶段修改 Go 文件的 `gofmt -l`：无输出；`git diff --check`：通过。
+
+### 已知问题
+
+- discover 依赖最近一次有限扫描；文件若在扫描后修改但大小/mtime 不同，会返回 `index_outdated`，不会使用旧片段。沿用阶段 3 的极端风险：内容变化后又恢复相同大小和 mtime 时，需要 `force=true` 扫描才能得到新 hash。
+- manifest 有效性只跟踪入选 Evidence 文档。排除项变化或新增相关文档不会在 30 分钟 TTL 内主动使现有 manifest 失效；重新 discover 可立即刷新候选范围。
+- 排序是确定性的本地关键词启发式，不做分词、语义搜索或 embedding；中文/英文完成表述之外的同义表达可能排序较低。
+- 普通 Markdown/TXT、DOCX/PDF 和其他文件在阶段 3 只有元数据，因此阶段 4 即使允许 content 也不会虚构 excerpt。DOCX/PDF 正文属于阶段 6。
+- 路径解析与随后 `os.Stat` 之间仍存在 TOCTOU 窗口；阶段 5 生成前必须再次调用 manifest 校验，阶段 9 继续加强文件系统竞态防护。
+- `excluded` 明细默认最多保存 200 条，但 `excluded_count` 和 `omitted_excluded_count` 保留总量信息；候选检查最多 20,000 个文档，达到上限要求缩小资料源或时间范围后重新发现。
+- 当前没有阶段 5 的个人总结 UI，也没有 evidence 勾选/取消接口；本阶段只提供后端 discover/get 契约。
+- Linux 仍只完成 amd64、`CGO_ENABLED=0` 交叉构建，未在真实 UOS/Linux 验证。
+
+### 下一阶段入口
+
+- 必须先阅读：`ROADMAP.md`、本文件、`backend/contextmanifest/`、`backend/api/context_manifest.go`、`backend/storage/migrations/003_context_manifests.sql`、`backend/indexer/`、`backend/policy/`、`backend/safepath/`。
+- 可复用接口：`contextmanifest.Resolver.Discover`、`contextmanifest.Resolver.Get`、`contextmanifest.ContextManifest`、`contextmanifest.EvidenceItem`、`contextmanifest.Repository`、`indexer.Repository.GetByID`。
+- 阶段 5 应新增独立“个人总结”页面：先调用 discover 展示资料源、排除/离线缺口和 token 预算，再让用户确认/取消 evidence，最后只按 manifest ID 生成。
+- 阶段 5 的 generate 入口必须在 AI 调用前重新调用 manifest 校验并只发送仍被允许、仍在用户确认集合中的 EvidenceItem；`valid=false` 或 `requires_rediscovery=true` 必须拒绝生成。
+- AI 输入不得包含 `excluded`、`unavailable_sources`、SourceRoot 绝对路径、API Key 或数据库内部快照；metadata evidence 不得补读正文。
+- 不要改动：discover 的无路径请求、明确时间范围、严格未知字段校验、默认资料源种类、30 分钟失效和当前路径/策略/hash 重校验语义。
+- 不要提前实施：完整正文生成、DOCX/PDF 抽取、embedding、通用 Tool Calls、文件修改或 action plan。
+
 ## 全局未决事项
 
-- 阶段 4 需要确定 ContextManifest/Evidence schema、稳定候选排序、token 估算和 manifest 失效条件。
-- 阶段 5 已确定新增独立“个人总结”页面，并复用现有工作报告基础组件。
+- 阶段 5 需要确定用户取消 evidence 的请求契约、AI run/audit schema、结构化大纲输出和 evidence 引用校验。
+- 阶段 5 已确定新增独立“个人总结”页面，并复用现有工作报告基础组件；不要把新闭环塞入现有 `WorkReport` 状态机。
 - 阶段 6 需要分别为 DOCX 和 PDF 解析依赖记录 ADR。
 
 ## 固定验证命令

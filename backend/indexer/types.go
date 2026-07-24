@@ -59,6 +59,17 @@ type IndexedDocument struct {
 	updatedAt        string
 }
 
+// DocumentAIAccess returns the explicit file/work-record AI access override
+// captured during indexing. Context discovery must combine this override with
+// the current source and path policy instead of trusting AIAccessEffective.
+func (document IndexedDocument) DocumentAIAccess() *policy.AIAccess {
+	if document.documentAIAccess == nil {
+		return nil
+	}
+	value := *document.documentAIAccess
+	return &value
+}
+
 type Limits struct {
 	MaxFiles          int
 	MaxTotalBytes     int64
