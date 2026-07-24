@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
@@ -22,6 +22,7 @@ var migrations = []migration{
 	{version: 1, filename: "migrations/001_source_roots.sql"},
 	{version: 2, filename: "migrations/002_indexed_documents.sql"},
 	{version: 3, filename: "migrations/003_context_manifests.sql"},
+	{version: 4, filename: "migrations/004_ai_runs.sql"},
 }
 
 // Migrate applies every pending schema migration in a single transaction and

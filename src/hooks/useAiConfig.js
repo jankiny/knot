@@ -4,6 +4,7 @@ import { getSelectedAiModel } from '../services/settings'
 export async function getReportAiConfig({ featureLabel }) {
   const selectedModel = getSelectedAiModel()
   const aiConfig = {
+    config_id: selectedModel?.id || '',
     enabled: true,
     api_url: selectedModel?.apiUrl || '',
     api_key: '',

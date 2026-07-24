@@ -225,6 +225,39 @@ export const sourceRootApi = {
   importLegacy: async (requestData) => {
     const response = await axios.post(`${API_BASE}/source-roots/import-legacy`, requestData)
     return response.data
+  },
+
+  scanAll: async (force = false) => {
+    const response = await axios.post(`${API_BASE}/source-roots/scan`, { force })
+    return response.data
   }
 }
 
+export const contextApi = {
+  discover: async (requestData) => {
+    const response = await axios.post(`${API_BASE}/context/discover`, requestData)
+    return response.data
+  },
+
+  get: async (id) => {
+    const response = await axios.get(`${API_BASE}/context/${id}`)
+    return response.data
+  },
+
+  generate: async (id, requestData) => {
+    const response = await axios.post(`${API_BASE}/context/${id}/generate`, requestData)
+    return response.data
+  }
+}
+
+export const aiRunApi = {
+  get: async (id) => {
+    const response = await axios.get(`${API_BASE}/ai-runs/${id}`)
+    return response.data
+  },
+
+  getSources: async (id) => {
+    const response = await axios.get(`${API_BASE}/ai-runs/${id}/sources`)
+    return response.data
+  }
+}

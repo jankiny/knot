@@ -164,6 +164,19 @@ func TestMigrateUpgradesVersionOneDatabaseToCurrentSchema(t *testing.T) {
 	if contextTableCount != 2 {
 		t.Fatalf("expected 2 context manifest tables, got %d", contextTableCount)
 	}
+
+	var auditTableCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'table'
+			AND name IN ('ai_runs', 'ai_run_evidence')
+	`).Scan(&auditTableCount); err != nil {
+		t.Fatalf("inspect AI audit tables: %v", err)
+	}
+	if auditTableCount != 2 {
+		t.Fatalf("expected 2 AI audit tables, got %d", auditTableCount)
+	}
 }
 
 func TestMigrateUpgradesVersionTwoDatabaseToContextManifests(t *testing.T) {
@@ -219,6 +232,73 @@ func TestMigrateUpgradesVersionTwoDatabaseToContextManifests(t *testing.T) {
 			"expected 2 context manifest indexes, got %d",
 			manifestIndexCount,
 		)
+	}
+}
+
+func TestMigrateUpgradesVersionThreeDatabaseToAIRunAudit(t *testing.T) {
+	directory := repositoryTestDirectory(t, "storage_upgrade_v3")
+	databasePath := filepath.Join(directory.Path, DatabaseFileName)
+
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := applyMigrations(
+		context.Background(),
+		db,
+		migrations[:3],
+		migrationFiles.ReadFile,
+	); err != nil {
+		t.Fatalf("create version three database: %v", err)
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("upgrade database: %v", err)
+	}
+
+	var version int
+	if err := db.QueryRow(
+		"SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+	).Scan(&version); err != nil {
+		t.Fatalf("read upgraded schema version: %v", err)
+	}
+	if version != CurrentSchemaVersion {
+		t.Fatalf(
+			"expected schema version %d, got %d",
+			CurrentSchemaVersion,
+			version,
+		)
+	}
+
+	var tableCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'table'
+			AND name IN ('ai_runs', 'ai_run_evidence')
+	`).Scan(&tableCount); err != nil {
+		t.Fatalf("inspect AI audit tables: %v", err)
+	}
+	if tableCount != 2 {
+		t.Fatalf("expected 2 AI audit tables, got %d", tableCount)
+	}
+
+	var indexCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'index'
+			AND name IN (
+				'idx_ai_runs_context_created',
+				'idx_ai_runs_status_created',
+				'idx_ai_run_evidence_evidence'
+			)
+	`).Scan(&indexCount); err != nil {
+		t.Fatalf("inspect AI audit indexes: %v", err)
+	}
+	if indexCount != 3 {
+		t.Fatalf("expected 3 AI audit indexes, got %d", indexCount)
 	}
 }
 

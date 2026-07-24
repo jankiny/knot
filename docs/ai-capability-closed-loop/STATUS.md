@@ -5,10 +5,10 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 已完成，等待进入阶段 5
-- 最后完成阶段：阶段 4 - 上下文自动发现与 Evidence Manifest
-- 当前 schema version：3
-- 当前里程碑：个人年度总结闭环
+- 当前阶段：阶段 5 已完成，等待进入阶段 6
+- 最后完成阶段：阶段 5 - 个人年度总结只读智能闭环
+- 当前 schema version：4
+- 当前里程碑：里程碑一“个人年度总结闭环”已完成
 
 ## 已确认的代码基线
 
@@ -485,11 +485,144 @@
 - 不要改动：discover 的无路径请求、明确时间范围、严格未知字段校验、默认资料源种类、30 分钟失效和当前路径/策略/hash 重校验语义。
 - 不要提前实施：完整正文生成、DOCX/PDF 抽取、embedding、通用 Tool Calls、文件修改或 action plan。
 
+## Stage 5 - 个人年度总结只读智能闭环
+
+- 状态：completed
+- 分支：`dev`
+- 提交 SHA：未提交（实现前基线：`ae16d5a`）
+- 完成日期：2026-07-24
+
+### 已实现
+
+- 新增独立“个人总结”导航与 React 页面，没有进入既有 `WorkReport` 状态机。默认需求只描述年度总结大纲，不包含任何路径；默认周期为最近一年。
+- 页面先调用阶段 3 的有限增量 scan-all，再调用阶段 4 discover；扫描失败时明确提示并使用现有索引继续发现，不在 discover handler 内隐式扫描。
+- 资料预览展示已发现日志数、项目数、资料源范围、排除原因汇总、离线/缺失资料源、evidence/token 预算；用户可逐条取消 evidence，发送前必须再次显式勾选确认。
+- 生成目标在 UI 中明确显示。阶段 5 新闭环只允许 `api.deepseek.com` 和 `api.openai.com` 的官方 HTTPS 端点，并拒绝 HTTP、凭据 URL、非 443 端口、伪造子域名和任意自定义目标；既有工作报告、资料检索和自定义模型行为未改变。
+- 新增 `backend/annualsummary`：生成前按 manifest ID 调用 `contextmanifest.Resolver.Get`，拒绝失效/过期 manifest；用户 evidence ID 必须是当前 manifest 的非空、无重复子集，并按 manifest 原顺序发送。
+- 模型输入只包含 task type、查询、时间和获准 `ModelEvidence`；不包含 excluded、unavailable sources、document/root ID、选择原因、相对/绝对路径、数据库快照或 API Key。metadata evidence 强制清空 excerpt。
+- 模型仅生成结构化 JSON 大纲：标题、约 1500 字目标篇幅、章节/篇幅/大纲要点、可核实成果、信息不足项；本地严格拒绝未知字段、非法篇幅、空章节和未选 evidence 引用，再由本地代码渲染 Markdown。
+- 团队成果、个人分工、数字、排名和奖项的保守规则写入 system prompt；模型不得输出完整 1500 字正文。离线资料源由本地代码追加为 missing information，不发送给模型。
+- 成功/失败调用都创建独立 AI run；模型或 JSON 失败保留原 manifest，可直接重试，不重新全盘扫描。成功结果保留章节/事实到 evidence ID 的引用，页面可查看并复制 Markdown。
+- 新增 AI run 读取接口，供结果和来源审计；来源审计只保存 evidence 的受控元数据，不保存 excerpt、选择原因、路径、prompt、provider 原始响应或 API Key。
+- 未增加 DOCX/PDF 正文、embedding、通用多轮 Agent、Tool Calls、文件写入或 action plan；无需 ADR。
+
+### 数据库与 migration
+
+- schema version：4。
+- migration：`backend/storage/migrations/004_ai_runs.sql`；未修改 migration 001/002/003。
+- 新增 `ai_runs`：run ID、manifest ID、模型配置 ID、模型名、task type、`running|success|failed`、确认 evidence 数、可选输入/输出 token、结构化结果 JSON、受控错误码/消息、创建/完成时间。
+- 新增 `ai_run_evidence`：run 内顺序、evidence/document/root ID、source type、标题、日期、项目和生成时有效 AI 权限；明确不保存 excerpt、reason 和任何路径。
+- 索引：manifest + created time、status + created time、evidence ID。
+- `context_manifest_id` 不设外键，后续 manifest 清理不会破坏历史审计；`ai_run_evidence` 对 run 使用 `ON DELETE CASCADE`。
+- migration 仍在 storage 的单一事务内连续执行。没有自动 down migration；恢复 schema 3 需退出 Knot 后恢复升级前数据库备份。
+
+### 公共接口
+
+- `POST /api/context/{id}/generate`：严格 JSON，请求只接受：
+
+```json
+{
+  "evidence_ids": ["evidence_xxx"],
+  "confirm_send": true,
+  "ai": {
+    "config_id": "deepseek-v4-flash",
+    "api_url": "https://api.deepseek.com",
+    "api_key": "<仅用于本次鉴权，不进入 prompt/audit>",
+    "model": "deepseek-v4-flash",
+    "enabled": true
+  }
+}
+```
+
+- 成功返回 `201`：`run_id`、`manifest_id`、确认 evidence 数、接口可得的 token 和结构化 `result`（含本地 Markdown）。
+- manifest 不存在返回 `404`；manifest 失效返回 `409`；请求/确认/evidence/目标非法返回 `400`；模型或模型 JSON 失败返回 `502` 并带 `ai_run_id` 和受控 error code；服务未初始化返回 `503`。
+- `GET /api/ai-runs/{id}`：返回 run 状态、模型配置 ID、token、时间和成功结果/受控失败信息。
+- `GET /api/ai-runs/{id}/sources`：返回按发送顺序排列的受控 evidence 元数据，不返回正文和路径。
+- 前端新增 `contextApi`、`aiRunApi` 和 `sourceRootApi.scanAll`；`getReportAiConfig` 新增 `config_id`，旧 AI 请求会忽略该新增字段，旧接口语义不变。
+
+### 实际发给模型的数据结构样例
+
+```json
+{
+  "task_type": "personal_annual_summary",
+  "query": "我已经工作一年了，请根据现有工作资料生成一份 1500 字左右个人工作总结大纲。",
+  "period_start": "2025-07-24",
+  "period_end": "2026-07-24",
+  "evidence": [
+    {
+      "evidence_id": "evidence_xxx",
+      "source_type": "journal_weekly",
+      "title": "2026.W03 工作周报",
+      "date": "2026-01-12",
+      "project": "",
+      "excerpt": "完成……推进……",
+      "ai_access_effective": "content"
+    },
+    {
+      "evidence_id": "evidence_metadata",
+      "source_type": "file",
+      "title": "年度资料.docx",
+      "date": "2026-01-10",
+      "project": "",
+      "excerpt": "",
+      "ai_access_effective": "metadata"
+    }
+  ]
+}
+```
+
+样例已脱敏；生产输入没有 excluded/unavailable source、路径、API Key、document/root ID 或内部排序说明。
+
+### 关键决策
+
+- 用户取消 evidence 不创建新的 manifest；generate 请求提交确认子集，服务先重新校验完整 manifest，再只发送当前子集。任何入选快照失效都会保守拒绝本次生成并要求 rediscover。
+- API Key 仍沿用 Electron `safeStorage` 解密后按次传给本地后端，只作为官方 HTTPS 请求的 Authorization header；不会进入模型消息、SQLite 审计、错误响应或日志。
+- 为避免新 generate API 成为任意数据外发代理，阶段 5 不接受任意 OpenAI-compatible URL。自定义端点若未来需要进入该闭环，必须先设计可验证的目标授权/allowlist，不应直接放宽当前校验。
+- audit 保存 AI 生成结果以支持读取和追溯；不保存输入 prompt 或原始 evidence excerpt。结果可能包含模型基于“允许发送”的 evidence 生成的事实表述，这不等同于复制禁止保存的原始正文。
+- 结构化引用由本地代码校验：每个章节和每条可核实成果至少引用一个用户已确认 evidence ID，未知/伪造 ID 导致整次 run 失败并进入审计。
+
+### 测试
+
+- `pnpm test -- --run`：通过，7 个测试文件、21 项测试；新增默认提示词无路径、统计、排除汇总和模型目标边界测试。
+- `pnpm run build`：通过；保留既有 Vite CJS Node API 弃用和大 chunk 警告。
+- `$env:TEMP/TMP=<repo>/data/_test_stage5_runtime; conda run -n go go test ./annualsummary ./storage ./api`：通过。
+- `$env:TEMP/TMP=<repo>/data/_test_stage5_runtime; conda run -n go go test ./...`：通过，全部 Go 包通过。
+- API 测试覆盖：确认子集、模型输入脱敏、未确认拒绝、非 allowlist 目标拒绝、manifest 变化后拒绝、成功/失败审计、run/source 读取，以及无持久服务时的 `503`。
+- annualsummary 测试覆盖：metadata 正文强制清空、内部 document/root/reason 不进入模型输入、伪造 evidence 引用拒绝、官方 HTTPS 目标校验。
+- storage 测试覆盖 v3 → v4 migration、AI run 表与索引。
+- `conda run -n go go vet ./...`：通过。
+- `conda run -n go go build -buildvcs=false ./...`：通过。
+- `pnpm run backend:build:win`：通过；验证后删除生成的 Windows 后端。
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false`：通过；验证后删除生成的 Linux 后端。
+- `node --check electron/main.js`、`electron/preload.js`、`electron/backendProcess.js`：通过。
+- `go mod tidy -diff`：无差异。
+- 本阶段修改 Go 文件的 `gofmt -l`：无输出；`git diff --check`：通过。
+- 受控 Browser QA：`http://127.0.0.1:5173/` 页面身份、非空、无框架错误层、个人总结导航、默认安全空态、文本输入状态和 768×900 单列/无横向溢出均通过；因刻意不启动 Go 后端，仅有预期的 legacy import `404` 警告。Vite 进程和 QA 文件已清理。
+- 首次未设置 `TEMP/TMP` 的 Conda 调用被不可用的 Windows 系统临时目录阻塞；一次默认 GBK 输出无法呈现测试失败文本；一次直接调用 Conda 内裁剪过的 `go.exe` 因未设置 GOROOT 拒绝启动。三者均未作为代码结果，最终统一使用仓库内忽略目录、UTF-8 和 `conda run -n go` 后通过。
+
+### 已知问题
+
+- 自动化测试使用可检查输入的 fake gateway，没有使用真实 API Key 或向外部模型发送测试资料；真实 provider 的 JSON mode、限流和内容质量仍需用户在脱敏资料上验收。
+- 阶段 5 个人总结仅支持官方 DeepSeek/OpenAI HTTPS 主机；自定义 OpenAI-compatible 端点继续可用于既有功能，但暂不能用于个人总结。
+- Browser QA 未启动后端，因此只覆盖页面空态、导航、表单和响应式布局；完整资料态由 React 纯函数测试和 API 端到端 handler 测试覆盖。
+- 普通 Markdown/TXT、DOCX/PDF 仍只有元数据，不能支撑正文级总结；属于阶段 6。
+- 沿用阶段 4 的盲区：相同大小/mtime 的极端内容变化需 `force=true`；新增/排除候选不会在 30 分钟 TTL 内主动使旧 manifest 失效；排序仍为关键词启发式。
+- 审计目前没有导出、保留期或清理 UI；这些属于后续可靠性/发布阶段。
+- 路径解析、`os.Stat` 与实际模型请求之间仍存在文件系统 TOCTOU 窗口；generate 会重新校验，但阶段 9 仍需继续加强。
+- Linux 仍只完成 Windows 上的 amd64、`CGO_ENABLED=0` 交叉构建，未在真实 UOS/Linux 验证。
+
+### 下一阶段入口
+
+- 必须先阅读：`ROADMAP.md`、本文件、`backend/annualsummary/`、`backend/contextmanifest/`、`backend/indexer/`、`backend/storage/migrations/004_ai_runs.sql`、`src/components/PersonalSummary.jsx`。
+- 可复用接口：`contextmanifest.Resolver.Get`、`annualsummary.ModelEvidence`、`annualsummary.Repository`、`GET /api/ai-runs/{id}`、`GET /api/ai-runs/{id}/sources`。
+- 阶段 6 应按 ROADMAP 顺序补齐 TXT/Markdown、DOCX 和文本型 PDF 抽取与分层摘要；选择 DOCX/PDF 依赖前先写 ADR，并保持 extractor/version、cache key、当前权限和 token 上限。
+- 不要改动：无路径 discover、manifest 生成前重校验、用户 evidence 子集确认、metadata excerpt 为空、模型引用本地校验、audit 不保存 prompt/excerpt/path/API Key，以及官方目标 allowlist。
+- 不要提前实施：通用 Tool Calls、多轮 Agent、embedding、OCR、文件修改、action plan、任意目标外发或完整 1500 字正文。
+
 ## 全局未决事项
 
-- 阶段 5 需要确定用户取消 evidence 的请求契约、AI run/audit schema、结构化大纲输出和 evidence 引用校验。
-- 阶段 5 已确定新增独立“个人总结”页面，并复用现有工作报告基础组件；不要把新闭环塞入现有 `WorkReport` 状态机。
 - 阶段 6 需要分别为 DOCX 和 PDF 解析依赖记录 ADR。
+- 阶段 6 需要确定 extractor/version、摘要 cache key、结果失效和审计保留策略；不得用旧摘要绕过当前权限。
 
 ## 固定验证命令
 

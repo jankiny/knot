@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"knot-backend/annualsummary"
 	"knot-backend/contextmanifest"
 	"knot-backend/indexer"
 	"knot-backend/safepath"
@@ -25,9 +26,11 @@ const (
 
 // Dependencies contains optional persistent services used by API handlers.
 type Dependencies struct {
-	SourceRegistry    *sources.Registry
-	IndexRepository   *indexer.Repository
-	ContextRepository *contextmanifest.Repository
+	SourceRegistry       *sources.Registry
+	IndexRepository      *indexer.Repository
+	ContextRepository    *contextmanifest.Repository
+	AIRunRepository      *annualsummary.Repository
+	AnnualSummaryGateway annualsummary.Gateway
 }
 
 // SetupRoutes initializes routes without persistent services. It remains
@@ -43,6 +46,7 @@ func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 	var safePathResolver *safepath.Resolver
 	var indexScanner *indexer.Scanner
 	var contextResolver *contextmanifest.Resolver
+	var annualSummaryService *annualsummary.Service
 	if dependencies.SourceRegistry != nil {
 		safePathResolver = safepath.NewResolver(dependencies.SourceRegistry)
 		if dependencies.IndexRepository != nil {
@@ -62,6 +66,17 @@ func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 					dependencies.IndexRepository,
 					dependencies.ContextRepository,
 				)
+				if dependencies.AIRunRepository != nil {
+					gateway := dependencies.AnnualSummaryGateway
+					if gateway == nil {
+						gateway = annualsummary.NewOpenAIGateway(nil)
+					}
+					annualSummaryService = annualsummary.NewService(
+						contextResolver,
+						dependencies.AIRunRepository,
+						gateway,
+					)
+				}
 			}
 		}
 	}
@@ -81,7 +96,12 @@ func SetupRoutesWithDependencies(dependencies Dependencies) *chi.Mux {
 	r.Route("/api", func(r chi.Router) {
 		registerSourceRootRoutes(r, dependencies.SourceRegistry)
 		registerIndexScanRoutes(r, indexScanner)
-		registerContextManifestRoutes(r, contextResolver)
+		registerContextManifestRoutes(
+			r,
+			contextResolver,
+			annualSummaryService,
+		)
+		registerAIRunRoutes(r, dependencies.AIRunRepository)
 
 		r.Post("/mail/connect", handleConnectMail)
 		r.Get("/mail/list", handleGetMailList)

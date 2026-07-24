@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"knot-backend/annualsummary"
 	"knot-backend/api"
 	"knot-backend/appdata"
 	"knot-backend/contextmanifest"
@@ -32,6 +33,7 @@ func main() {
 		SourceRegistry:    sourceRegistry,
 		IndexRepository:   indexer.NewRepository(database),
 		ContextRepository: contextmanifest.NewRepository(database),
+		AIRunRepository:   annualsummary.NewRepository(database),
 	})
 
 	port := "18000"

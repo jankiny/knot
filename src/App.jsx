@@ -14,6 +14,7 @@ import {
   MenuUnfoldOutlined,
   MinusOutlined,
   PlusSquareOutlined,
+  SolutionOutlined,
   SettingOutlined
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
@@ -22,6 +23,7 @@ import ArchiveAiSearch from './components/ArchiveAiSearch'
 import AutoArchive from './components/AutoArchive'
 import ArchiveManager from './components/ArchiveManager'
 import MailList from './components/MailList'
+import PersonalSummary from './components/PersonalSummary'
 import QuickCreate from './components/QuickCreate'
 import Settings from './components/Settings'
 import WorkReport from './components/WorkReport'
@@ -83,7 +85,8 @@ function App() {
     { key: 'archive', icon: <FolderOpenOutlined />, label: '当前工作' },
     { key: 'archive-manager', icon: <InboxOutlined />, label: '归档管理' },
     { key: 'archive-ai-search', icon: <FileSearchOutlined />, label: '资料检索' },
-    { key: 'work-report', icon: <FileTextOutlined />, label: '工作报告' }
+    { key: 'work-report', icon: <FileTextOutlined />, label: '工作报告' },
+    { key: 'personal-summary', icon: <SolutionOutlined />, label: '个人总结' }
   ]
 
   const renderContent = () => {
@@ -100,6 +103,8 @@ function App() {
         return <ArchiveAiSearch />
       case 'work-report':
         return <WorkReport />
+      case 'personal-summary':
+        return <PersonalSummary />
       case 'about':
         return <About appTitle={appTitle} developerMode={settings.developerMode === true} />
       case 'settings':
@@ -123,6 +128,8 @@ function App() {
         return '资料检索'
       case 'work-report':
         return '工作报告'
+      case 'personal-summary':
+        return '个人总结'
       case 'about':
         return '关于'
       case 'settings':
