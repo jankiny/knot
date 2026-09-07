@@ -5,7 +5,7 @@ import (
 )
 
 func TestNewMailClient(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 993, "user@example.com", "password123", true)
+	mc := NewMailClient("imap.example.com", 993, "user@example.com", "password123", true, false)
 
 	if mc.server != "imap.example.com" {
 		t.Errorf("expected server 'imap.example.com', got '%s'", mc.server)
@@ -28,14 +28,14 @@ func TestNewMailClient(t *testing.T) {
 }
 
 func TestNewMailClient_NoSSL(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 143, "user", "pass", false)
+	mc := NewMailClient("imap.example.com", 143, "user", "pass", false, false)
 	if mc.useSSL {
 		t.Error("expected useSSL to be false")
 	}
 }
 
 func TestDisconnect_NilConn(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 993, "user", "pass", true)
+	mc := NewMailClient("imap.example.com", 993, "user", "pass", true, false)
 	// Should not panic when conn is nil
 	mc.Disconnect()
 	if mc.conn != nil {
@@ -44,7 +44,7 @@ func TestDisconnect_NilConn(t *testing.T) {
 }
 
 func TestFetchMailList_NotConnected(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 993, "user", "pass", true)
+	mc := NewMailClient("imap.example.com", 993, "user", "pass", true, false)
 	_, err := mc.FetchMailList(50, 0)
 	if err == nil {
 		t.Error("expected error when not connected")
@@ -55,7 +55,7 @@ func TestFetchMailList_NotConnected(t *testing.T) {
 }
 
 func TestFetchMailDetail_NotConnected(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 993, "user", "pass", true)
+	mc := NewMailClient("imap.example.com", 993, "user", "pass", true, false)
 	_, err := mc.FetchMailDetail("123")
 	if err == nil {
 		t.Error("expected error when not connected")
@@ -63,7 +63,7 @@ func TestFetchMailDetail_NotConnected(t *testing.T) {
 }
 
 func TestFetchAttachments_NotConnected(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 993, "user", "pass", true)
+	mc := NewMailClient("imap.example.com", 993, "user", "pass", true, false)
 	_, err := mc.FetchAttachments("123")
 	if err == nil {
 		t.Error("expected error when not connected")
@@ -71,7 +71,7 @@ func TestFetchAttachments_NotConnected(t *testing.T) {
 }
 
 func TestDownloadAttachments_NotConnected(t *testing.T) {
-	mc := NewMailClient("imap.example.com", 993, "user", "pass", true)
+	mc := NewMailClient("imap.example.com", 993, "user", "pass", true, false)
 	_, err := mc.DownloadAttachments("123", "/tmp")
 	if err == nil {
 		t.Error("expected error when not connected")

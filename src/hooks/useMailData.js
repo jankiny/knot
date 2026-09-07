@@ -25,7 +25,8 @@ async function connectConfiguredMailbox(settings) {
       port: settings.mailPort || 993,
       username: settings.mailUsername,
       password,
-      use_ssl: settings.mailUseSsl !== false
+      use_ssl: settings.mailUseSsl !== false,
+      insecure_skip_verify: settings.mailUseSsl !== false && settings.mailInsecureSkipVerify === true
     })
   } catch (error) {
     console.error('自动连接邮箱失败:', error)

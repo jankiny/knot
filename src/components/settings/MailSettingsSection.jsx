@@ -8,6 +8,8 @@ function MailSettingsSection({ settings, onSettingsChange }) {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [form] = Form.useForm()
+  const useSsl = Form.useWatch('use_ssl', form)
+  const insecureSkipVerify = Form.useWatch('insecure_skip_verify', form)
 
   useEffect(() => {
     const loadMailSettings = async () => {
@@ -25,7 +27,8 @@ function MailSettingsSection({ settings, onSettingsChange }) {
         port: settings.mailPort || 993,
         username: settings.mailUsername || '',
         password: decryptedPassword,
-        use_ssl: settings.mailUseSsl !== false
+        use_ssl: settings.mailUseSsl !== false,
+        insecure_skip_verify: settings.mailUseSsl !== false && settings.mailInsecureSkipVerify === true
       })
     }
 
@@ -39,13 +42,15 @@ function MailSettingsSection({ settings, onSettingsChange }) {
 
   const handleConnect = async (values) => {
     setLoading(true)
+    setConnected(false)
     try {
       await mailApi.connect({
         server: values.server,
         port: values.port,
         username: values.username,
         password: values.password,
-        use_ssl: values.use_ssl
+        use_ssl: values.use_ssl,
+        insecure_skip_verify: values.use_ssl === true && values.insecure_skip_verify === true
       })
       message.success('连接成功')
       setConnected(true)
@@ -64,7 +69,8 @@ function MailSettingsSection({ settings, onSettingsChange }) {
         mailPort: values.port,
         mailUsername: values.username,
         mailPasswordEncrypted: encryptedPassword,
-        mailUseSsl: values.use_ssl
+        mailUseSsl: values.use_ssl,
+        mailInsecureSkipVerify: values.use_ssl === true && values.insecure_skip_verify === true
       })
       onSettingsChange(newSettings)
     } catch (error) {
@@ -121,9 +127,16 @@ function MailSettingsSection({ settings, onSettingsChange }) {
           form={form}
           layout="vertical"
           onFinish={handleConnect}
+          onValuesChange={(changedValues) => {
+            setConnected(false)
+            if (['server', 'port', 'username', 'use_ssl'].some((key) => key in changedValues)) {
+              form.setFieldValue('insecure_skip_verify', false)
+            }
+          }}
           initialValues={{
             port: 993,
-            use_ssl: true
+            use_ssl: true,
+            insecure_skip_verify: false
           }}
           disabled={USE_MOCK}
         >
@@ -165,6 +178,17 @@ function MailSettingsSection({ settings, onSettingsChange }) {
             valuePropName="checked"
           >
             <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="insecure_skip_verify"
+            label="内网兼容：跳过证书验证"
+            valuePropName="checked"
+            extra={insecureSkipVerify
+              ? '已跳过证书验证：连接仍加密，但无法确认服务器身份。仅用于你确认可信的内网邮箱。'
+              : '默认验证服务器证书。内网自签名或证书不受信任时可手动开启；更换服务器、端口或账号后会重置。'}
+          >
+            <Switch disabled={USE_MOCK || useSsl !== true} />
           </Form.Item>
 
           <Form.Item>

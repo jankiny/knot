@@ -16,11 +16,12 @@ var mailClient *mail.MailClient
 // -- Mail Handlers --
 
 type MailConfig struct {
-	Server   string `json:"server"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	UseSSL   bool   `json:"use_ssl"`
+	Server             string `json:"server"`
+	Port               int    `json:"port"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	UseSSL             bool   `json:"use_ssl"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 }
 
 func handleConnectMail(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +35,7 @@ func handleConnectMail(w http.ResponseWriter, r *http.Request) {
 		mailClient.Disconnect()
 	}
 
-	mailClient = mail.NewMailClient(config.Server, config.Port, config.Username, config.Password, config.UseSSL)
+	mailClient = mail.NewMailClient(config.Server, config.Port, config.Username, config.Password, config.UseSSL, config.InsecureSkipVerify)
 	if err := mailClient.Connect(); err != nil {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("连接失败: %v", err))
 		return

@@ -2,10 +2,12 @@ package mail
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"mime"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,47 +22,65 @@ import (
 )
 
 type MailClient struct {
-	server   string
-	port     int
-	username string
-	password string
-	useSSL   bool
-	conn     *client.Client
+	server             string
+	port               int
+	username           string
+	password           string
+	useSSL             bool
+	insecureSkipVerify bool
+	conn               *client.Client
 }
 
-func NewMailClient(server string, port int, username, password string, useSSL bool) *MailClient {
+func NewMailClient(server string, port int, username, password string, useSSL, insecureSkipVerify bool) *MailClient {
 	return &MailClient{
-		server:   server,
-		port:     port,
-		username: username,
-		password: password,
-		useSSL:   useSSL,
+		server:             server,
+		port:               port,
+		username:           username,
+		password:           password,
+		useSSL:             useSSL,
+		insecureSkipVerify: useSSL && insecureSkipVerify,
 	}
 }
 
 func (c *MailClient) Connect() error {
-	addr := fmt.Sprintf("%s:%d", c.server, c.port)
+	addr := net.JoinHostPort(c.server, fmt.Sprint(c.port))
 	var err error
+	var conn *client.Client
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
 
 	if c.useSSL {
-		c.conn, err = client.DialTLS(addr, &tls.Config{ServerName: c.server})
+		conn, err = client.DialWithDialerTLS(dialer, addr, &tls.Config{
+			ServerName: c.server,
+			// Explicit per-mailbox compatibility setting; never enabled on TLS failure.
+			InsecureSkipVerify: c.insecureSkipVerify,
+		})
 	} else {
-		c.conn, err = client.Dial(addr)
+		conn, err = client.DialWithDialer(dialer, addr)
 	}
 
 	if err != nil {
+		var certificateError *tls.CertificateVerificationError
+		if errors.As(err, &certificateError) {
+			return fmt.Errorf("connect error: 邮箱证书验证失败；请检查服务器地址和证书。已确认的内网邮箱可在邮件设置中开启“内网兼容：跳过证书验证”（仍使用 TLS 加密，但不验证服务器身份）: %w", err)
+		}
 		return fmt.Errorf("connect error: %w", err)
 	}
 
-	if err := c.conn.Login(c.username, c.password); err != nil {
+	conn.Timeout = 15 * time.Second
+	if err := conn.Login(c.username, c.password); err != nil {
+		conn.Terminate()
 		return fmt.Errorf("login error: %w", err)
 	}
 
-	_, err = c.conn.Select("INBOX", false)
+	_, err = conn.Select("INBOX", false)
 	if err != nil {
+		conn.Terminate()
 		return fmt.Errorf("select inbox error: %w", err)
 	}
 
+	// Keep the existing unlimited timeout for mail fetching and attachment downloads.
+	conn.Timeout = 0
+	c.conn = conn
 	return nil
 }
 

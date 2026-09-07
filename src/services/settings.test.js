@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_AI_MODEL_ID, formatFolderName, getSelectedAiModel, getSettings } from './settings'
+import { DEFAULT_AI_MODEL_ID, formatFolderName, getSelectedAiModel, getSettings, saveSettings } from './settings'
+import { readMailCache, saveMailCache } from './mailCache'
 
 const storage = new Map()
 
@@ -12,6 +13,50 @@ globalThis.localStorage = {
 
 beforeEach(() => {
   localStorage.clear()
+})
+
+describe('mail certificate compatibility', () => {
+  const mailbox = { mailServer: 'imap.internal.test', mailPort: 993, mailUsername: 'user', mailUseSsl: true }
+
+  it('keeps certificate verification enabled for new and legacy settings', () => {
+    expect(getSettings().mailInsecureSkipVerify).toBe(false)
+    localStorage.setItem('knot_settings', JSON.stringify(mailbox))
+    expect(getSettings().mailInsecureSkipVerify).toBe(false)
+    localStorage.setItem('knot_settings', JSON.stringify({ ...mailbox, mailInsecureSkipVerify: 'true' }))
+    expect(getSettings().mailInsecureSkipVerify).toBe(false)
+  })
+
+  it('persists an explicit exception through reloads and unrelated settings changes', () => {
+    saveSettings({ ...mailbox, mailInsecureSkipVerify: true })
+    saveSettings({ mailDays: 30 })
+    expect(getSettings().mailInsecureSkipVerify).toBe(true)
+  })
+
+  it.each([
+    { mailServer: 'imap.public.test' },
+    { mailPort: 994 },
+    { mailUsername: 'another-user' },
+    { mailUseSsl: false }
+  ])('resets an existing exception when the mailbox changes: %j', (updates) => {
+    saveSettings({ ...mailbox, mailInsecureSkipVerify: true })
+    saveSettings(updates)
+    expect(getSettings().mailInsecureSkipVerify).toBe(false)
+  })
+
+  it('requires TLS even when an explicit exception is supplied', () => {
+    saveSettings({ ...mailbox, mailUseSsl: false, mailInsecureSkipVerify: true })
+    expect(getSettings().mailInsecureSkipVerify).toBe(false)
+  })
+
+  it('does not reuse mail cached with a different certificate policy', () => {
+    const settings = { ...mailbox, mailInsecureSkipVerify: true }
+    saveMailCache(settings, [{ id: '1', subject: 'cached mail' }])
+    expect(readMailCache(settings)?.mails).toHaveLength(1)
+    expect(readMailCache({ ...settings, mailInsecureSkipVerify: false })).toBeNull()
+    saveMailCache(mailbox, [{ id: '2' }])
+    expect(readMailCache(settings)).toBeNull()
+    expect(readMailCache(mailbox)?.mails).toHaveLength(1)
+  })
 })
 
 describe('formatFolderName', () => {

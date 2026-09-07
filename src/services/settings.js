@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   mailUsername: '',
   mailPasswordEncrypted: null,  // 加密存储的密码
   mailUseSsl: true,
+  mailInsecureSkipVerify: false,
   // 邮件获取设置
   mailLimit: 50,  // 获取邮件数量限制
   mailDays: 7,    // 获取最近多少天的邮件（0表示不限制）
@@ -67,6 +68,7 @@ function normalizeSettings(settings) {
     ...settings,
     appTitleLanguage: settings.appTitleLanguage === 'zh' ? 'zh' : 'en',
     developerMode: settings.developerMode === true,
+    mailInsecureSkipVerify: settings.mailUseSsl !== false && settings.mailInsecureSkipVerify === true,
     ...normalizeAiSettings(settings)
   }
 }
@@ -91,6 +93,12 @@ export function getSettings() {
 export function saveSettings(updates) {
   try {
     const current = getSettings()
+    const mailboxChanged = ['mailServer', 'mailPort', 'mailUsername', 'mailUseSsl'].some(
+      (key) => Object.prototype.hasOwnProperty.call(updates, key) && updates[key] !== current[key]
+    )
+    if (mailboxChanged && !Object.prototype.hasOwnProperty.call(updates, 'mailInsecureSkipVerify')) {
+      updates = { ...updates, mailInsecureSkipVerify: false }
+    }
     const newSettings = normalizeSettings({ ...current, ...updates })
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings))
     return newSettings

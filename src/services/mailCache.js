@@ -36,7 +36,8 @@ function buildIdentity(settings = {}) {
     server: normalizeIdentityValue(settings.mailServer),
     username: normalizeIdentityValue(settings.mailUsername),
     port: Number(settings.mailPort) || 993,
-    useSsl: settings.mailUseSsl !== false
+    useSsl: settings.mailUseSsl !== false,
+    insecureSkipVerify: settings.mailUseSsl !== false && settings.mailInsecureSkipVerify === true
   }
 }
 
@@ -45,7 +46,8 @@ function isSameIdentity(a, b) {
     a.server === b.server &&
     a.username === b.username &&
     a.port === b.port &&
-    a.useSsl === b.useSsl
+    a.useSsl === b.useSsl &&
+    (a.insecureSkipVerify === true) === (b.insecureSkipVerify === true)
   )
 }
 
